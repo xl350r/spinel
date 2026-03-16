@@ -1,0 +1,371 @@
+{
+  "Integer": {
+    "instance_methods": {
+      "+": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "other", "type": "Integer", "required": true }
+            ],
+            "return": "Integer"
+          },
+          {
+            "params": [
+              { "name": "other", "type": "Float", "required": true }
+            ],
+            "return": "Float"
+          }
+        ]
+      },
+      "-": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "other", "type": "Integer", "required": true }
+            ],
+            "return": "Integer"
+          },
+          {
+            "params": [
+              { "name": "other", "type": "Float", "required": true }
+            ],
+            "return": "Float"
+          }
+        ]
+      },
+      "*": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "other", "type": "Integer", "required": true }
+            ],
+            "return": "Integer"
+          },
+          {
+            "params": [
+              { "name": "other", "type": "Float", "required": true }
+            ],
+            "return": "Float"
+          }
+        ]
+      },
+      "to_s": {
+        "overloads": [
+          {
+            "params": [],
+            "return": "String"
+          },
+          {
+            "params": [
+              { "name": "base", "type": "Integer", "required": true }
+            ],
+            "return": "String"
+          }
+        ]
+      },
+      "to_f": {
+        "overloads": [
+          { "params": [], "return": "Float" }
+        ]
+      },
+      "to_i": {
+        "overloads": [
+          { "params": [], "return": "Integer" }
+        ]
+      },
+      "==": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "other", "type": "untyped", "required": true }
+            ],
+            "return": "bool"
+          }
+        ]
+      },
+      "<": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "other", "type": "Integer | Float", "required": true }
+            ],
+            "return": "bool"
+          }
+        ]
+      },
+      "times": {
+        "overloads": [
+          {
+            "params": [],
+            "block": { "params": ["Integer"], "return": "void" },
+            "return": "self"
+          }
+        ]
+      }
+    }
+  },
+  "String": {
+    "instance_methods": {
+      "+": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "other", "type": "String", "required": true }
+            ],
+            "return": "String"
+          }
+        ]
+      },
+      "to_s": {
+        "overloads": [
+          { "params": [], "return": "String" }
+        ]
+      },
+      "size": {
+        "overloads": [
+          { "params": [], "return": "Integer" }
+        ]
+      },
+      "length": {
+        "overloads": [
+          { "params": [], "return": "Integer" }
+        ]
+      },
+      "split": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "pattern", "type": "String | Regexp", "required": true }
+            ],
+            "return": "Array[String]"
+          },
+          {
+            "params": [
+              { "name": "pattern", "type": "String | Regexp", "required": true },
+              { "name": "limit", "type": "Integer", "optional": true }
+            ],
+            "return": "Array[String]"
+          }
+        ]
+      },
+      "==": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "other", "type": "untyped", "required": true }
+            ],
+            "return": "bool"
+          }
+        ]
+      },
+      "[]": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "index", "type": "Integer", "required": true }
+            ],
+            "return": "String | nil"
+          },
+          {
+            "params": [
+              { "name": "index", "type": "Integer", "required": true },
+              { "name": "length", "type": "Integer", "required": true }
+            ],
+            "return": "String | nil"
+          }
+        ]
+      }
+    }
+  },
+  "Array": {
+    "instance_methods": {
+      "each": {
+        "overloads": [
+          {
+            "params": [],
+            "block": { "params": ["Elem"], "return": "void" },
+            "return": "self"
+          }
+        ]
+      },
+      "map": {
+        "overloads": [
+          {
+            "params": [],
+            "block": { "params": ["Elem"], "return": "U" },
+            "return": "Array[U]"
+          }
+        ]
+      },
+      "size": {
+        "overloads": [
+          { "params": [], "return": "Integer" }
+        ]
+      },
+      "push": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "obj", "type": "Elem", "rest": true }
+            ],
+            "return": "self"
+          }
+        ]
+      },
+      "[]": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "index", "type": "Integer", "required": true }
+            ],
+            "return": "Elem | nil"
+          }
+        ]
+      }
+    },
+    "type_params": ["Elem"]
+  },
+  "Hash": {
+    "instance_methods": {
+      "[]": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "key", "type": "K", "required": true }
+            ],
+            "return": "V | nil"
+          }
+        ]
+      },
+      "[]=": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "key", "type": "K", "required": true },
+              { "name": "value", "type": "V", "required": true }
+            ],
+            "return": "V"
+          }
+        ]
+      },
+      "each": {
+        "overloads": [
+          {
+            "params": [],
+            "block": { "params": ["K", "V"], "return": "void" },
+            "return": "self"
+          }
+        ]
+      },
+      "size": {
+        "overloads": [
+          { "params": [], "return": "Integer" }
+        ]
+      },
+      "keys": {
+        "overloads": [
+          { "params": [], "return": "Array[K]" }
+        ]
+      }
+    },
+    "type_params": ["K", "V"]
+  },
+  "Object": {
+    "instance_methods": {
+      "class": {
+        "overloads": [
+          { "params": [], "return": "Class" }
+        ]
+      },
+      "to_s": {
+        "overloads": [
+          { "params": [], "return": "String" }
+        ]
+      },
+      "inspect": {
+        "overloads": [
+          { "params": [], "return": "String" }
+        ]
+      },
+      "==": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "other", "type": "untyped", "required": true }
+            ],
+            "return": "bool"
+          }
+        ]
+      },
+      "nil?": {
+        "overloads": [
+          { "params": [], "return": "bool" }
+        ]
+      },
+      "is_a?": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "mod", "type": "Module", "required": true }
+            ],
+            "return": "bool"
+          }
+        ]
+      },
+      "respond_to?": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "name", "type": "Symbol | String", "required": true }
+            ],
+            "return": "bool"
+          }
+        ]
+      }
+    }
+  },
+  "Kernel": {
+    "instance_methods": {
+      "puts": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "args", "type": "untyped", "rest": true }
+            ],
+            "return": "nil"
+          }
+        ]
+      },
+      "p": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "args", "type": "untyped", "rest": true }
+            ],
+            "return": "untyped"
+          }
+        ]
+      },
+      "print": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "args", "type": "untyped", "rest": true }
+            ],
+            "return": "nil"
+          }
+        ]
+      },
+      "raise": {
+        "overloads": [
+          {
+            "params": [
+              { "name": "exception", "type": "String | Exception", "required": true }
+            ],
+            "return": "bot"
+          }
+        ]
+      }
+    }
+  }
+}

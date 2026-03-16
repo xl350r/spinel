@@ -1,0 +1,111 @@
+{
+  "Integer": {
+    "instance_methods": {
+      "+": { "c_func": "int_add", "file": "src/numeric.c", "line": 123 },
+      "-": { "c_func": "int_sub", "file": "src/numeric.c", "line": 145 },
+      "*": { "c_func": "int_mul", "file": "src/numeric.c", "line": 167 },
+      "/": { "c_func": "int_div", "file": "src/numeric.c", "line": 189 },
+      "%": { "c_func": "int_mod", "file": "src/numeric.c", "line": 211 },
+      "==": { "c_func": "int_equal", "file": "src/numeric.c", "line": 233 },
+      "<=>": { "c_func": "int_cmp", "file": "src/numeric.c", "line": 255 },
+      "<": { "c_func": "int_lt", "file": "src/numeric.c", "line": 277 },
+      "to_s": { "c_func": "int_to_s", "file": "src/numeric.c", "line": 299 },
+      "to_f": { "c_func": "int_to_f", "file": "src/numeric.c", "line": 321 },
+      "to_i": { "c_func": "int_to_i", "file": "src/numeric.c", "line": 343 },
+      "times": { "c_func": "int_times", "file": "src/numeric.c", "line": 365 },
+      "chr": { "c_func": "int_chr", "file": "src/numeric.c", "line": 387 }
+    },
+    "class_methods": {}
+  },
+  "String": {
+    "instance_methods": {
+      "+": { "c_func": "mrb_str_plus", "file": "src/string.c", "line": 100 },
+      "size": { "c_func": "mrb_str_size", "file": "src/string.c", "line": 200 },
+      "length": { "c_func": "mrb_str_size", "file": "src/string.c", "line": 201 },
+      "to_s": { "c_func": "mrb_str_to_s", "file": "src/string.c", "line": 300 },
+      "to_i": { "c_func": "mrb_str_to_i", "file": "src/string.c", "line": 400 },
+      "to_f": { "c_func": "mrb_str_to_f", "file": "src/string.c", "line": 500 },
+      "split": { "c_func": "mrb_str_split", "file": "src/string.c", "line": 600 },
+      "[]": { "c_func": "mrb_str_aref", "file": "src/string.c", "line": 700 },
+      "[]=": { "c_func": "mrb_str_aset", "file": "src/string.c", "line": 800 },
+      "==": { "c_func": "mrb_str_equal", "file": "src/string.c", "line": 900 },
+      "include?": { "c_func": "mrb_str_include", "file": "src/string.c", "line": 1000 },
+      "gsub": { "c_func": "mrb_str_gsub", "file": "src/string.c", "line": 1100 },
+      "sub": { "c_func": "mrb_str_sub", "file": "src/string.c", "line": 1200 },
+      "upcase": { "c_func": "mrb_str_upcase", "file": "src/string.c", "line": 1300 },
+      "downcase": { "c_func": "mrb_str_downcase", "file": "src/string.c", "line": 1400 }
+    },
+    "class_methods": {}
+  },
+  "Array": {
+    "instance_methods": {
+      "each": { "c_func": "mrb_ary_each", "file": "src/array.c", "line": 100 },
+      "map": { "c_func": "mrb_ary_map", "file": "src/array.c", "line": 200 },
+      "size": { "c_func": "mrb_ary_size", "file": "src/array.c", "line": 300 },
+      "length": { "c_func": "mrb_ary_size", "file": "src/array.c", "line": 301 },
+      "push": { "c_func": "mrb_ary_push_m", "file": "src/array.c", "line": 400 },
+      "pop": { "c_func": "mrb_ary_pop", "file": "src/array.c", "line": 500 },
+      "shift": { "c_func": "mrb_ary_shift", "file": "src/array.c", "line": 600 },
+      "unshift": { "c_func": "mrb_ary_unshift_m", "file": "src/array.c", "line": 700 },
+      "[]": { "c_func": "mrb_ary_aget", "file": "src/array.c", "line": 800 },
+      "[]=": { "c_func": "mrb_ary_aset", "file": "src/array.c", "line": 900 },
+      "==": { "c_func": "mrb_ary_equal", "file": "src/array.c", "line": 1000 },
+      "first": { "c_func": "mrb_ary_first", "file": "src/array.c", "line": 1100 },
+      "last": { "c_func": "mrb_ary_last", "file": "src/array.c", "line": 1200 },
+      "include?": { "c_func": "mrb_ary_include_p", "file": "src/array.c", "line": 1300 },
+      "sort": { "c_func": "mrb_ary_sort", "file": "src/array.c", "line": 1400 },
+      "reverse": { "c_func": "mrb_ary_reverse", "file": "src/array.c", "line": 1500 },
+      "flatten": { "c_func": "mrb_ary_flatten", "file": "src/array.c", "line": 1600 },
+      "compact": { "c_func": "mrb_ary_compact", "file": "src/array.c", "line": 1700 },
+      "join": { "c_func": "mrb_ary_join_m", "file": "src/array.c", "line": 1800 },
+      "select": { "c_func": "mrb_ary_select", "file": "src/array.c", "line": 1900 },
+      "reject": { "c_func": "mrb_ary_reject", "file": "src/array.c", "line": 2000 }
+    },
+    "class_methods": {}
+  },
+  "Object": {
+    "instance_methods": {
+      "class": { "c_func": "mrb_obj_class_m", "file": "src/object.c", "line": 50 },
+      "to_s": { "c_func": "mrb_any_to_s", "file": "src/object.c", "line": 100 },
+      "inspect": { "c_func": "mrb_obj_inspect", "file": "src/object.c", "line": 150 },
+      "==": { "c_func": "mrb_obj_equal_m", "file": "src/object.c", "line": 200 },
+      "nil?": { "c_func": "mrb_false", "file": "src/object.c", "line": 250 },
+      "is_a?": { "c_func": "mrb_obj_is_kind_of_m", "file": "src/object.c", "line": 300 },
+      "respond_to?": { "c_func": "mrb_obj_respond_to", "file": "src/object.c", "line": 350 },
+      "send": { "c_func": "mrb_f_send", "file": "src/object.c", "line": 400 },
+      "freeze": { "c_func": "mrb_obj_freeze", "file": "src/object.c", "line": 450 },
+      "frozen?": { "c_func": "mrb_obj_frozen", "file": "src/object.c", "line": 500 },
+      "dup": { "c_func": "mrb_obj_dup", "file": "src/object.c", "line": 550 },
+      "hash": { "c_func": "mrb_obj_hash", "file": "src/object.c", "line": 600 }
+    },
+    "class_methods": {}
+  },
+  "Kernel": {
+    "instance_methods": {
+      "puts": { "c_func": "mrb_printstr", "file": "mrbgems/mruby-print/src/print.c", "line": 50 },
+      "p": { "c_func": "mrb_p", "file": "mrbgems/mruby-print/src/print.c", "line": 100 },
+      "print": { "c_func": "mrb_print", "file": "mrbgems/mruby-print/src/print.c", "line": 150 },
+      "raise": { "c_func": "mrb_f_raise", "file": "src/kernel.c", "line": 200 },
+      "block_given?": { "c_func": "mrb_f_block_given_p_m", "file": "src/kernel.c", "line": 250 },
+      "require": { "c_func": "mrb_f_require", "file": "src/kernel.c", "line": 300 },
+      "rand": { "c_func": "mrb_random_f_rand", "file": "mrbgems/mruby-random/src/random.c", "line": 50 },
+      "sleep": { "c_func": "mrb_f_sleep", "file": "mrbgems/mruby-sleep/src/sleep.c", "line": 50 }
+    },
+    "class_methods": {}
+  },
+  "Hash": {
+    "instance_methods": {
+      "[]": { "c_func": "mrb_hash_aget", "file": "src/hash.c", "line": 100 },
+      "[]=": { "c_func": "mrb_hash_aset", "file": "src/hash.c", "line": 200 },
+      "each": { "c_func": "mrb_hash_each", "file": "src/hash.c", "line": 300 },
+      "size": { "c_func": "mrb_hash_size_m", "file": "src/hash.c", "line": 400 },
+      "keys": { "c_func": "mrb_hash_keys", "file": "src/hash.c", "line": 500 },
+      "values": { "c_func": "mrb_hash_values", "file": "src/hash.c", "line": 600 },
+      "has_key?": { "c_func": "mrb_hash_has_key", "file": "src/hash.c", "line": 700 },
+      "delete": { "c_func": "mrb_hash_delete", "file": "src/hash.c", "line": 800 },
+      "merge": { "c_func": "mrb_hash_merge_m", "file": "src/hash.c", "line": 900 },
+      "to_a": { "c_func": "mrb_hash_to_a", "file": "src/hash.c", "line": 1000 }
+    },
+    "class_methods": {}
+  }
+}

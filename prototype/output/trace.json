@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "source_hash": "sha256:example_for_demonstration",
+  "call_sites": {
+    "app.rb:2:16": {
+      "method": "+",
+      "receiver_types": {
+        "String": 1000
+      },
+      "return_types": {
+        "String": 1000
+      },
+      "total_calls": 1000
+    },
+    "app.rb:2:11": {
+      "method": "to_s",
+      "receiver_types": {
+        "String": 950,
+        "Integer": 50
+      },
+      "return_types": {
+        "String": 1000
+      },
+      "total_calls": 1000
+    },
+    "app.rb:4:1": {
+      "method": "puts",
+      "receiver_types": {
+        "Object": 1
+      },
+      "return_types": {
+        "NilClass": 1
+      },
+      "total_calls": 1
+    },
+    "app.rb:7:5": {
+      "method": "+",
+      "receiver_types": {
+        "Integer": 9950,
+        "Float": 50
+      },
+      "return_types": {
+        "Integer": 9900,
+        "Float": 100
+      },
+      "arg_types": [
+        {
+          "Integer": 9800,
+          "Float": 200
+        }
+      ],
+      "total_calls": 10000
+    },
+    "app.rb:12:3": {
+      "method": "each",
+      "receiver_types": {
+        "Array": 500
+      },
+      "return_types": {
+        "Array": 500
+      },
+      "total_calls": 500
+    },
+    "app.rb:15:5": {
+      "method": "split",
+      "receiver_types": {
+        "String": 200
+      },
+      "return_types": {
+        "Array": 200
+      },
+      "arg_types": [
+        {
+          "String": 150,
+          "Regexp": 50
+        }
+      ],
+      "total_calls": 200
+    }
+  }
+}

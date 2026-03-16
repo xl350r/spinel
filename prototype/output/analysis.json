@@ -1,0 +1,229 @@
+{
+  "version": 1,
+  "resolutions": {
+    "app.rb:2:16": {
+      "site": "app.rb:2:16",
+      "method": "+",
+      "resolution": "PROVEN",
+      "receiver_types": {
+        "String": 1000
+      },
+      "return_types": {
+        "String": 1000
+      },
+      "total_calls": 1000,
+      "resolved_targets": [
+        {
+          "target": "String#+",
+          "rbs_confirmed": true
+        }
+      ],
+      "reason": "monomorphic + CHA proven (no redefinition of String#+)"
+    },
+    "app.rb:2:11": {
+      "site": "app.rb:2:11",
+      "method": "to_s",
+      "resolution": "LIKELY",
+      "receiver_types": {
+        "String": 950,
+        "Integer": 50
+      },
+      "return_types": {
+        "String": 1000
+      },
+      "total_calls": 1000,
+      "resolved_targets": [
+        {
+          "target": "String#to_s",
+          "rbs_confirmed": true
+        },
+        {
+          "target": "Integer#to_s",
+          "rbs_confirmed": true
+        }
+      ],
+      "reason": "polymorphic (2 types)"
+    },
+    "app.rb:4:1": {
+      "site": "app.rb:4:1",
+      "method": "puts",
+      "resolution": "LIKELY",
+      "receiver_types": {
+        "Object": 1
+      },
+      "return_types": {
+        "NilClass": 1
+      },
+      "total_calls": 1,
+      "resolved_targets": [
+        {
+          "target": "Object#puts",
+          "rbs_confirmed": false
+        }
+      ],
+      "reason": "monomorphic but CHA not proven"
+    },
+    "app.rb:7:5": {
+      "site": "app.rb:7:5",
+      "method": "+",
+      "resolution": "LIKELY",
+      "receiver_types": {
+        "Integer": 9950,
+        "Float": 50
+      },
+      "return_types": {
+        "Integer": 9900,
+        "Float": 100
+      },
+      "total_calls": 10000,
+      "resolved_targets": [
+        {
+          "target": "Integer#+",
+          "rbs_confirmed": true
+        },
+        {
+          "target": "Float#+",
+          "rbs_confirmed": false
+        }
+      ],
+      "reason": "polymorphic (2 types)"
+    },
+    "app.rb:12:3": {
+      "site": "app.rb:12:3",
+      "method": "each",
+      "resolution": "PROVEN",
+      "receiver_types": {
+        "Array": 500
+      },
+      "return_types": {
+        "Array": 500
+      },
+      "total_calls": 500,
+      "resolved_targets": [
+        {
+          "target": "Array#each",
+          "rbs_confirmed": true
+        }
+      ],
+      "reason": "monomorphic + CHA proven (no redefinition of Array#each)"
+    },
+    "app.rb:15:5": {
+      "site": "app.rb:15:5",
+      "method": "split",
+      "resolution": "PROVEN",
+      "receiver_types": {
+        "String": 200
+      },
+      "return_types": {
+        "Array": 200
+      },
+      "total_calls": 200,
+      "resolved_targets": [
+        {
+          "target": "String#split",
+          "rbs_confirmed": true
+        }
+      ],
+      "reason": "monomorphic + CHA proven (no redefinition of String#split)"
+    }
+  },
+  "reachable_methods": [
+    "Array#each",
+    "Float#+",
+    "Integer#+",
+    "Integer#to_s",
+    "Object#puts",
+    "String#+",
+    "String#split",
+    "String#to_s"
+  ],
+  "all_methods": [
+    "Array#==",
+    "Array#[]",
+    "Array#[]=",
+    "Array#compact",
+    "Array#each",
+    "Array#first",
+    "Array#flatten",
+    "Array#include?",
+    "Array#join",
+    "Array#last",
+    "Array#length",
+    "Array#map",
+    "Array#pop",
+    "Array#push",
+    "Array#reject",
+    "Array#reverse",
+    "Array#select",
+    "Array#shift",
+    "Array#size",
+    "Array#sort",
+    "Array#unshift",
+    "Hash#[]",
+    "Hash#[]=",
+    "Hash#delete",
+    "Hash#each",
+    "Hash#has_key?",
+    "Hash#keys",
+    "Hash#merge",
+    "Hash#size",
+    "Hash#to_a",
+    "Hash#values",
+    "Integer#%",
+    "Integer#*",
+    "Integer#+",
+    "Integer#-",
+    "Integer#/",
+    "Integer#<",
+    "Integer#<=>",
+    "Integer#==",
+    "Integer#chr",
+    "Integer#times",
+    "Integer#to_f",
+    "Integer#to_i",
+    "Integer#to_s",
+    "Kernel#block_given?",
+    "Kernel#p",
+    "Kernel#print",
+    "Kernel#puts",
+    "Kernel#raise",
+    "Kernel#rand",
+    "Kernel#require",
+    "Kernel#sleep",
+    "Object#==",
+    "Object#class",
+    "Object#dup",
+    "Object#freeze",
+    "Object#frozen?",
+    "Object#hash",
+    "Object#inspect",
+    "Object#is_a?",
+    "Object#nil?",
+    "Object#respond_to?",
+    "Object#send",
+    "Object#to_s",
+    "String#+",
+    "String#==",
+    "String#[]",
+    "String#[]=",
+    "String#downcase",
+    "String#gsub",
+    "String#include?",
+    "String#length",
+    "String#size",
+    "String#split",
+    "String#sub",
+    "String#to_f",
+    "String#to_i",
+    "String#to_s",
+    "String#upcase"
+  ],
+  "summary": {
+    "total_sites": 6,
+    "proven": 3,
+    "likely": 3,
+    "unresolved": 0,
+    "reachable_methods": 8,
+    "total_methods": 79
+  }
+}
