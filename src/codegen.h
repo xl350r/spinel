@@ -22,6 +22,7 @@ typedef enum {
     SPINEL_TYPE_STRING,
     SPINEL_TYPE_NIL,
     SPINEL_TYPE_OBJECT,  /* user-defined class instance */
+    SPINEL_TYPE_ARRAY,   /* sp_IntArray * (built-in integer array) */
     SPINEL_TYPE_VALUE,   /* boxed mrb_value (fallback) */
 } spinel_type_t;
 
@@ -137,6 +138,9 @@ typedef struct {
     class_info_t *current_class;
     method_info_t *current_method;
     module_info_t *current_module;
+
+    /* When true, the last expression in a block should be emitted as a return */
+    bool implicit_return;
 } codegen_ctx_t;
 
 void codegen_init(codegen_ctx_t *ctx, pm_parser_t *parser, FILE *out);
