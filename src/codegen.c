@@ -4618,9 +4618,17 @@ static void codegen_stmt(codegen_ctx_t *ctx, pm_node_t *node) {
             break;
         }
 
-        /* raise "msg" → sp_raise("msg") */
+        /* raise "msg" or raise ClassName, "msg" */
         if (!call->receiver && strcmp(method, "raise") == 0) {
-            if (call->arguments && call->arguments->arguments.size > 0) {
+            int argc = call->arguments ? (int)call->arguments->arguments.size : 0;
+            if (argc >= 2 && PM_NODE_TYPE(call->arguments->arguments.nodes[0]) == PM_CONSTANT_READ_NODE) {
+                /* raise ClassName, "message" */
+                pm_constant_read_node_t *cr = (pm_constant_read_node_t *)call->arguments->arguments.nodes[0];
+                char *cls = cstr(ctx, cr->name);
+                char *msg = codegen_expr(ctx, call->arguments->arguments.nodes[1]);
+                emit(ctx, "sp_raise_cls(\"%s\", %s);\n", cls, msg);
+                free(cls); free(msg);
+            } else if (argc >= 1) {
                 char *msg = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
                 emit(ctx, "sp_raise(%s);\n", msg);
                 free(msg);
@@ -5051,20 +5059,54 @@ static void codegen_stmt(codegen_ctx_t *ctx, pm_node_t *node) {
             ctx->indent++;
             emit(ctx, "sp_exc_depth--;\n");
 
-            /* rescue clause: handle `=> e` binding */
-            if (rescue->reference) {
-                if (PM_NODE_TYPE(rescue->reference) == PM_LOCAL_VARIABLE_TARGET_NODE) {
-                    pm_local_variable_target_node_t *t =
-                        (pm_local_variable_target_node_t *)rescue->reference;
-                    char *vn = cstr(ctx, t->name);
-                    char *cn = make_cname(vn, false);
-                    emit(ctx, "%s = sp_exc_message;\n", cn);
-                    free(vn); free(cn);
-                }
-            }
+            /* rescue clauses — may be chained (rescue A => e; rescue B => e2) */
+            pm_rescue_node_t *rc = rescue;
+            bool first_rc = true;
+            while (rc) {
+                /* Check if this rescue has exception class filters */
+                bool has_class_filter = (rc->exceptions.size > 0);
 
-            /* rescue body */
-            if (rescue->statements) codegen_stmts(ctx, (pm_node_t *)rescue->statements);
+                if (has_class_filter) {
+                    emit(ctx, "%sif (", first_rc ? "" : "} else ");
+                    for (size_t ei = 0; ei < rc->exceptions.size; ei++) {
+                        if (ei > 0) emit_raw(ctx, " || ");
+                        pm_node_t *exc = rc->exceptions.nodes[ei];
+                        if (PM_NODE_TYPE(exc) == PM_CONSTANT_READ_NODE) {
+                            pm_constant_read_node_t *cr = (pm_constant_read_node_t *)exc;
+                            char *cls = cstr(ctx, cr->name);
+                            emit_raw(ctx, "sp_exc_is_a(\"%s\")", cls);
+                            free(cls);
+                        }
+                    }
+                    emit_raw(ctx, ") {\n");
+                    ctx->indent++;
+                } else if (!first_rc) {
+                    emit(ctx, "} else {\n");
+                    ctx->indent++;
+                }
+
+                /* rescue => e binding */
+                if (rc->reference) {
+                    if (PM_NODE_TYPE(rc->reference) == PM_LOCAL_VARIABLE_TARGET_NODE) {
+                        pm_local_variable_target_node_t *t =
+                            (pm_local_variable_target_node_t *)rc->reference;
+                        char *vn = cstr(ctx, t->name);
+                        char *cn = make_cname(vn, false);
+                        emit(ctx, "%s = sp_exc_message;\n", cn);
+                        free(vn); free(cn);
+                    }
+                }
+
+                /* rescue body */
+                if (rc->statements) codegen_stmts(ctx, (pm_node_t *)rc->statements);
+
+                if (has_class_filter) ctx->indent--;
+
+                first_rc = false;
+                rc = rc->subsequent;
+            }
+            if (!first_rc && rescue->exceptions.size > 0)
+                emit(ctx, "}\n");
 
             ctx->indent--;
             emit(ctx, "}\n");
@@ -6036,13 +6078,40 @@ static void emit_header(codegen_ctx_t *ctx) {
         emit_raw(ctx, "#define SP_EXC_STACK_SIZE 64\n");
         emit_raw(ctx, "static jmp_buf sp_exc_stack[SP_EXC_STACK_SIZE];\n");
         emit_raw(ctx, "static int sp_exc_depth = 0;\n");
-        emit_raw(ctx, "static const char *sp_exc_message = NULL;\n\n");
+        emit_raw(ctx, "static const char *sp_exc_message = NULL;\n");
+        emit_raw(ctx, "static const char *sp_exc_class = \"RuntimeError\";\n\n");
         emit_raw(ctx, "static void sp_raise(const char *msg) {\n");
-        emit_raw(ctx, "    sp_exc_message = msg;\n");
-        emit_raw(ctx, "    if (sp_exc_depth > 0)\n");
-        emit_raw(ctx, "        longjmp(sp_exc_stack[sp_exc_depth - 1], 1);\n");
-        emit_raw(ctx, "    fprintf(stderr, \"unhandled exception: %%s\\n\", msg);\n");
-        emit_raw(ctx, "    exit(1);\n");
+        emit_raw(ctx, "    sp_exc_message = msg; sp_exc_class = \"RuntimeError\";\n");
+        emit_raw(ctx, "    if (sp_exc_depth > 0) longjmp(sp_exc_stack[sp_exc_depth - 1], 1);\n");
+        emit_raw(ctx, "    fprintf(stderr, \"unhandled exception: %%s\\n\", msg); exit(1);\n");
+        emit_raw(ctx, "}\n");
+        emit_raw(ctx, "static void sp_raise_cls(const char *cls, const char *msg) {\n");
+        emit_raw(ctx, "    sp_exc_message = msg; sp_exc_class = cls;\n");
+        emit_raw(ctx, "    if (sp_exc_depth > 0) longjmp(sp_exc_stack[sp_exc_depth - 1], 1);\n");
+        emit_raw(ctx, "    fprintf(stderr, \"%%s: %%s\\n\", cls, msg); exit(1);\n");
+        emit_raw(ctx, "}\n");
+        /* sp_exc_is_a checks class hierarchy — populated at codegen time */
+        emit_raw(ctx, "static int sp_exc_is_a(const char *cls) {\n");
+        emit_raw(ctx, "    if (strcmp(sp_exc_class, cls) == 0) return 1;\n");
+        /* Add inheritance checks for known exception classes */
+        for (int ci = 0; ci < ctx->class_count; ci++) {
+            class_info_t *c = &ctx->classes[ci];
+            if (c->superclass[0]) {
+                /* If raised class is c->name and cls is a parent, match */
+                emit_raw(ctx, "    if (strcmp(sp_exc_class, \"%s\") == 0 && strcmp(cls, \"%s\") == 0) return 1;\n",
+                         c->name, c->superclass);
+                /* Walk further up the chain */
+                class_info_t *p = find_class(ctx, c->superclass);
+                while (p && p->superclass[0]) {
+                    emit_raw(ctx, "    if (strcmp(sp_exc_class, \"%s\") == 0 && strcmp(cls, \"%s\") == 0) return 1;\n",
+                             c->name, p->superclass);
+                    p = find_class(ctx, p->superclass);
+                }
+            }
+        }
+        emit_raw(ctx, "    /* RuntimeError base class matches */\n");
+        emit_raw(ctx, "    if (strcmp(cls, \"RuntimeError\") == 0) return 1;\n");
+        emit_raw(ctx, "    return 0;\n");
         emit_raw(ctx, "}\n\n");
     }
 
