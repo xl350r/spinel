@@ -23,6 +23,7 @@ typedef enum {
     SPINEL_TYPE_NIL,
     SPINEL_TYPE_OBJECT,  /* user-defined class instance */
     SPINEL_TYPE_ARRAY,   /* sp_IntArray * (built-in integer array) */
+    SPINEL_TYPE_HASH,    /* sp_StrIntHash * (string→integer hash table) */
     SPINEL_TYPE_PROC,    /* sp_Val * (lambda/closure) */
     SPINEL_TYPE_VALUE,   /* boxed mrb_value (fallback) */
 } spinel_type_t;
@@ -164,6 +165,9 @@ typedef struct {
     /* Exception handling: true when raise/rescue is used */
     bool needs_exc;
     int exc_counter;   /* unique ID for retry labels */
+
+    /* Hash: true when any sp_StrIntHash is used */
+    bool needs_hash;
 
     /* GC: true when any non-value-type class or sp_IntArray is used */
     bool needs_gc;

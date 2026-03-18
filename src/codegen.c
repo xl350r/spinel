@@ -112,6 +112,7 @@ const char *spinel_type_cname(spinel_type_t k) {
     case SPINEL_TYPE_BOOLEAN: return "mrb_bool";
     case SPINEL_TYPE_STRING:  return "const char *";
     case SPINEL_TYPE_ARRAY:   return "sp_IntArray *";
+    case SPINEL_TYPE_HASH:    return "sp_StrIntHash *";
     case SPINEL_TYPE_PROC:    return "sp_Val *";
     default:                  return "mrb_int"; /* fallback for standalone mode */
     }
@@ -266,6 +267,7 @@ static void scan_captures(codegen_ctx_t *ctx, pm_node_t *node,
 /* Return true if a variable of this type needs GC rooting */
 static bool is_gc_type(codegen_ctx_t *ctx, vtype_t t) {
     if (t.kind == SPINEL_TYPE_ARRAY) return true;
+    if (t.kind == SPINEL_TYPE_HASH) return true;
     if (t.kind == SPINEL_TYPE_OBJECT) {
         class_info_t *cls = find_class(ctx, t.klass);
         return cls && !cls->is_value_type;
@@ -747,6 +749,16 @@ static vtype_t infer_type(codegen_ctx_t *ctx, pm_node_t *node) {
                 if (strcmp(method, "map") == 0 || strcmp(method, "select") == 0) { free(method); return vt_prim(SPINEL_TYPE_ARRAY); }
                 if (strcmp(method, "each") == 0) { free(method); return vt_prim(SPINEL_TYPE_ARRAY); }
             }
+            /* Hash methods on HASH-typed receiver */
+            if (recv_t.kind == SPINEL_TYPE_HASH) {
+                if (strcmp(method, "[]") == 0) { free(method); return vt_prim(SPINEL_TYPE_INTEGER); }
+                if (strcmp(method, "[]=") == 0) { free(method); return vt_prim(SPINEL_TYPE_INTEGER); }
+                if (strcmp(method, "length") == 0) { free(method); return vt_prim(SPINEL_TYPE_INTEGER); }
+                if (strcmp(method, "has_key?") == 0) { free(method); return vt_prim(SPINEL_TYPE_BOOLEAN); }
+                if (strcmp(method, "delete") == 0) { free(method); return vt_prim(SPINEL_TYPE_INTEGER); }
+                if (strcmp(method, "each") == 0) { free(method); return vt_prim(SPINEL_TYPE_HASH); }
+                if (strcmp(method, "keys") == 0) { free(method); return vt_prim(SPINEL_TYPE_ARRAY); }
+            }
         }
 
         /* Range#to_a → ARRAY */
@@ -911,6 +923,9 @@ static vtype_t infer_type(codegen_ctx_t *ctx, pm_node_t *node) {
     case PM_ARRAY_NODE:
         return vt_prim(SPINEL_TYPE_ARRAY);
 
+    case PM_HASH_NODE:
+        return vt_prim(SPINEL_TYPE_HASH);
+
     case PM_BEGIN_NODE: {
         pm_begin_node_t *bn = (pm_begin_node_t *)node;
         if (bn->statements)
@@ -1066,16 +1081,45 @@ static void infer_pass(codegen_ctx_t *ctx, pm_node_t *node) {
         /* Recurse into blocks (for .times do ... end) */
         if (call->block && PM_NODE_TYPE(call->block) == PM_BLOCK_NODE) {
             pm_block_node_t *blk = (pm_block_node_t *)call->block;
-            /* Register block parameter as integer */
+            /* Determine block parameter types based on receiver type */
+            bool is_hash_each = false;
+            if (call->receiver) {
+                vtype_t recv_t = infer_type(ctx, call->receiver);
+                char *meth = cstr(ctx, call->name);
+                if (recv_t.kind == SPINEL_TYPE_HASH && strcmp(meth, "each") == 0)
+                    is_hash_each = true;
+                free(meth);
+            }
             if (blk->parameters && PM_NODE_TYPE(blk->parameters) == PM_BLOCK_PARAMETERS_NODE) {
                 pm_block_parameters_node_t *bp = (pm_block_parameters_node_t *)blk->parameters;
-                if (bp->parameters && bp->parameters->requireds.size > 0) {
-                    pm_node_t *p = bp->parameters->requireds.nodes[0];
-                    if (PM_NODE_TYPE(p) == PM_REQUIRED_PARAMETER_NODE) {
-                        pm_required_parameter_node_t *rp = (pm_required_parameter_node_t *)p;
-                        char *pname = cstr(ctx, rp->name);
-                        var_declare(ctx, pname, vt_prim(SPINEL_TYPE_INTEGER), false);
-                        free(pname);
+                if (bp->parameters) {
+                    if (is_hash_each) {
+                        /* Hash#each: |k, v| where k is STRING, v is INTEGER */
+                        if (bp->parameters->requireds.size > 0) {
+                            pm_node_t *p = bp->parameters->requireds.nodes[0];
+                            if (PM_NODE_TYPE(p) == PM_REQUIRED_PARAMETER_NODE) {
+                                char *pname = cstr(ctx, ((pm_required_parameter_node_t *)p)->name);
+                                var_declare(ctx, pname, vt_prim(SPINEL_TYPE_STRING), false);
+                                free(pname);
+                            }
+                        }
+                        if (bp->parameters->requireds.size > 1) {
+                            pm_node_t *p = bp->parameters->requireds.nodes[1];
+                            if (PM_NODE_TYPE(p) == PM_REQUIRED_PARAMETER_NODE) {
+                                char *pname = cstr(ctx, ((pm_required_parameter_node_t *)p)->name);
+                                var_declare(ctx, pname, vt_prim(SPINEL_TYPE_INTEGER), false);
+                                free(pname);
+                            }
+                        }
+                    } else if (bp->parameters->requireds.size > 0) {
+                        /* Register block parameter as integer */
+                        pm_node_t *p = bp->parameters->requireds.nodes[0];
+                        if (PM_NODE_TYPE(p) == PM_REQUIRED_PARAMETER_NODE) {
+                            pm_required_parameter_node_t *rp = (pm_required_parameter_node_t *)p;
+                            char *pname = cstr(ctx, rp->name);
+                            var_declare(ctx, pname, vt_prim(SPINEL_TYPE_INTEGER), false);
+                            free(pname);
+                        }
                     }
                 }
             }
@@ -2163,7 +2207,7 @@ static char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node) {
                 free(recv); free(arg); free(method);
                 return r;
             }
-            if (recv_t.kind != SPINEL_TYPE_ARRAY) {
+            if (recv_t.kind != SPINEL_TYPE_ARRAY && recv_t.kind != SPINEL_TYPE_HASH) {
                 char *recv = codegen_expr(ctx, call->receiver);
                 char *idx = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
                 char *r = sfmt("%s[%s]", recv, idx);
@@ -2175,12 +2219,15 @@ static char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node) {
         /* Array index assignment: obj[index] = val → obj[index] = val */
         if (strcmp(method, "[]=") == 0 && call->receiver && call->arguments &&
             call->arguments->arguments.size == 2) {
-            char *recv = codegen_expr(ctx, call->receiver);
-            char *idx = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
-            char *val = codegen_expr(ctx, call->arguments->arguments.nodes[1]);
-            char *r = sfmt("(%s[%s] = %s)", recv, idx, val);
-            free(recv); free(idx); free(val); free(method);
-            return r;
+            vtype_t recv_t = infer_type(ctx, call->receiver);
+            if (recv_t.kind != SPINEL_TYPE_HASH) {
+                char *recv = codegen_expr(ctx, call->receiver);
+                char *idx = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                char *val = codegen_expr(ctx, call->arguments->arguments.nodes[1]);
+                char *r = sfmt("(%s[%s] = %s)", recv, idx, val);
+                free(recv); free(idx); free(val); free(method);
+                return r;
+            }
         }
 
         /* Unary minus: -expr */
@@ -2277,6 +2324,21 @@ static char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node) {
                     char *r = sfmt("sp_Rand_%s()", method);
                     free(method);
                     return r;
+                }
+            }
+
+            /* Hash#keys.length → sp_StrIntHash_length (chained call optimization) */
+            if (recv_t.kind == SPINEL_TYPE_ARRAY && strcmp(method, "length") == 0 &&
+                PM_NODE_TYPE(call->receiver) == PM_CALL_NODE) {
+                pm_call_node_t *inner = (pm_call_node_t *)call->receiver;
+                if (ceq(ctx, inner->name, "keys") && inner->receiver) {
+                    vtype_t inner_recv_t = infer_type(ctx, inner->receiver);
+                    if (inner_recv_t.kind == SPINEL_TYPE_HASH) {
+                        char *hrecv = codegen_expr(ctx, inner->receiver);
+                        char *r = sfmt("sp_StrIntHash_length(%s)", hrecv);
+                        free(hrecv); free(method);
+                        return r;
+                    }
                 }
             }
 
@@ -2422,6 +2484,49 @@ static char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node) {
                     return sfmt("_sel_%d", tmp);
                 }
 
+                free(recv);
+            }
+
+            /* sp_StrIntHash method calls */
+            if (recv_t.kind == SPINEL_TYPE_HASH) {
+                char *recv = codegen_expr(ctx, call->receiver);
+                char *r = NULL;
+                if (strcmp(method, "[]") == 0 && call->arguments &&
+                    call->arguments->arguments.size == 1) {
+                    char *key = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                    r = sfmt("sp_StrIntHash_get(%s, %s)", recv, key);
+                    free(key);
+                }
+                else if (strcmp(method, "[]=") == 0 && call->arguments &&
+                         call->arguments->arguments.size == 2) {
+                    char *key = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                    char *val = codegen_expr(ctx, call->arguments->arguments.nodes[1]);
+                    r = sfmt("sp_StrIntHash_set(%s, %s, %s)", recv, key, val);
+                    free(key); free(val);
+                }
+                else if (strcmp(method, "length") == 0)
+                    r = sfmt("sp_StrIntHash_length(%s)", recv);
+                else if (strcmp(method, "has_key?") == 0 && call->arguments &&
+                         call->arguments->arguments.size == 1) {
+                    char *key = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                    r = sfmt("sp_StrIntHash_has_key(%s, %s)", recv, key);
+                    free(key);
+                }
+                else if (strcmp(method, "delete") == 0 && call->arguments &&
+                         call->arguments->arguments.size == 1) {
+                    char *key = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                    r = sfmt("sp_StrIntHash_delete(%s, %s)", recv, key);
+                    free(key);
+                }
+                else if (strcmp(method, "keys") == 0) {
+                    /* h.keys returns a temporary — but typically used as h.keys.length
+                     * which chains to sp_IntArray_length. Handle keys as expression. */
+                    r = sfmt("sp_StrIntHash_keys(%s)", recv);
+                }
+                if (r) {
+                    free(recv); free(method);
+                    return r;
+                }
                 free(recv);
             }
 
@@ -2905,6 +3010,10 @@ static char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node) {
         /* Fallthrough for non-lambda mode */
         return sfmt("0 /* TODO: array expr */");
     }
+
+    case PM_HASH_NODE:
+        /* Empty hash literal {} → sp_StrIntHash_new() */
+        return xstrdup("sp_StrIntHash_new()");
 
     /* Chained assignment: zr = zi = 0 — inner write used as expression */
     case PM_LOCAL_VARIABLE_WRITE_NODE: {
@@ -3394,6 +3503,45 @@ static void codegen_stmt(codegen_ctx_t *ctx, pm_node_t *node) {
                 ctx->indent--;
                 emit(ctx, "}\n");
                 free(recv); free(bpname); free(method);
+                break;
+            }
+
+            /* Hash#each with block |k, v| → inline loop over insertion-order list */
+            if (recv_t.kind == SPINEL_TYPE_HASH) {
+                pm_block_node_t *blk = (pm_block_node_t *)call->block;
+                char *recv = codegen_expr(ctx, call->receiver);
+                char *kname = NULL, *vname = NULL;
+                if (blk->parameters && PM_NODE_TYPE(blk->parameters) == PM_BLOCK_PARAMETERS_NODE) {
+                    pm_block_parameters_node_t *bp = (pm_block_parameters_node_t *)blk->parameters;
+                    if (bp->parameters && bp->parameters->requireds.size > 0) {
+                        pm_node_t *p = bp->parameters->requireds.nodes[0];
+                        if (PM_NODE_TYPE(p) == PM_REQUIRED_PARAMETER_NODE)
+                            kname = cstr(ctx, ((pm_required_parameter_node_t *)p)->name);
+                    }
+                    if (bp->parameters && bp->parameters->requireds.size > 1) {
+                        pm_node_t *p = bp->parameters->requireds.nodes[1];
+                        if (PM_NODE_TYPE(p) == PM_REQUIRED_PARAMETER_NODE)
+                            vname = cstr(ctx, ((pm_required_parameter_node_t *)p)->name);
+                    }
+                }
+                int tmp = ctx->temp_counter++;
+                emit(ctx, "for (sp_HashEntry *_he_%d = %s->first; _he_%d; _he_%d = _he_%d->order_next) {\n",
+                     tmp, recv, tmp, tmp, tmp);
+                ctx->indent++;
+                if (kname) {
+                    char *cn = make_cname(kname, false);
+                    emit(ctx, "%s = _he_%d->key;\n", cn, tmp);
+                    free(cn);
+                }
+                if (vname) {
+                    char *cn = make_cname(vname, false);
+                    emit(ctx, "%s = _he_%d->value;\n", cn, tmp);
+                    free(cn);
+                }
+                if (blk->body) codegen_stmts(ctx, (pm_node_t *)blk->body);
+                ctx->indent--;
+                emit(ctx, "}\n");
+                free(recv); free(kname); free(vname); free(method);
                 break;
             }
         }
@@ -3906,6 +4054,13 @@ static void emit_method(codegen_ctx_t *ctx, class_info_t *cls, method_info_t *m)
             free(ct); free(cn);
             continue;
         }
+        else if (v->type.kind == SPINEL_TYPE_HASH) {
+            emit(ctx, "sp_StrIntHash *%s = NULL;\n", cn);
+            if (method_has_gc_vars)
+                emit(ctx, "SP_GC_ROOT(%s);\n", cn);
+            free(ct); free(cn);
+            continue;
+        }
         emit(ctx, "%s %s%s;\n", ct, cn, init);
         free(ct); free(cn);
     }
@@ -4018,6 +4173,13 @@ static void emit_top_func(codegen_ctx_t *ctx, func_info_t *f) {
             char *cn = make_cname(v->name, v->is_constant);
             if (v->type.kind == SPINEL_TYPE_ARRAY) {
                 emit(ctx, "sp_IntArray *%s = NULL;\n", cn);
+                if (func_has_gc_vars)
+                    emit(ctx, "SP_GC_ROOT(%s);\n", cn);
+                free(ct); free(cn);
+                continue;
+            }
+            if (v->type.kind == SPINEL_TYPE_HASH) {
+                emit(ctx, "sp_StrIntHash *%s = NULL;\n", cn);
                 if (func_has_gc_vars)
                     emit(ctx, "SP_GC_ROOT(%s);\n", cn);
                 free(ct); free(cn);
@@ -4455,6 +4617,118 @@ static void emit_header(codegen_ctx_t *ctx) {
 
     emit_raw(ctx, "static void sp_IntArray_free(sp_IntArray *a) {\n");
     emit_raw(ctx, "    if (a) { free(a->data); free(a); }\n}\n\n");
+
+    /* Built-in sp_StrIntHash for Hash support (only when hashes are used) */
+    if (ctx->needs_hash) {
+        emit_raw(ctx, "/* ---- Built-in string→integer hash table (insertion-ordered) ---- */\n");
+        emit_raw(ctx, "typedef struct sp_HashEntry {\n");
+        emit_raw(ctx, "    char *key;\n");
+        emit_raw(ctx, "    mrb_int value;\n");
+        emit_raw(ctx, "    struct sp_HashEntry *next;       /* bucket chain */\n");
+        emit_raw(ctx, "    struct sp_HashEntry *order_next; /* insertion order */\n");
+        emit_raw(ctx, "    struct sp_HashEntry *order_prev;\n");
+        emit_raw(ctx, "} sp_HashEntry;\n\n");
+
+        emit_raw(ctx, "typedef struct {\n");
+        emit_raw(ctx, "    sp_HashEntry **buckets;\n");
+        emit_raw(ctx, "    mrb_int size;\n");
+        emit_raw(ctx, "    mrb_int cap;\n");
+        emit_raw(ctx, "    sp_HashEntry *first; /* insertion-order head */\n");
+        emit_raw(ctx, "    sp_HashEntry *last;  /* insertion-order tail */\n");
+        emit_raw(ctx, "} sp_StrIntHash;\n\n");
+
+        emit_raw(ctx, "static unsigned sp_hash_str(const char *s) {\n");
+        emit_raw(ctx, "    unsigned h = 5381;\n");
+        emit_raw(ctx, "    while (*s) h = h * 33 + (unsigned char)*s++;\n");
+        emit_raw(ctx, "    return h;\n");
+        emit_raw(ctx, "}\n\n");
+
+        if (ctx->needs_gc) {
+            emit_raw(ctx, "static void sp_StrIntHash_finalize(void *p) {\n");
+            emit_raw(ctx, "    sp_StrIntHash *h = (sp_StrIntHash *)p;\n");
+            emit_raw(ctx, "    sp_HashEntry *e = h->first;\n");
+            emit_raw(ctx, "    while (e) { sp_HashEntry *n = e->order_next; free(e->key); free(e); e = n; }\n");
+            emit_raw(ctx, "    free(h->buckets);\n");
+            emit_raw(ctx, "}\n\n");
+
+            emit_raw(ctx, "static sp_StrIntHash *sp_StrIntHash_new(void) {\n");
+            emit_raw(ctx, "    sp_StrIntHash *h = (sp_StrIntHash *)sp_gc_alloc(sizeof(sp_StrIntHash), sp_StrIntHash_finalize, NULL);\n");
+            emit_raw(ctx, "    h->cap = 16; h->size = 0; h->first = NULL; h->last = NULL;\n");
+            emit_raw(ctx, "    h->buckets = (sp_HashEntry **)calloc(h->cap, sizeof(sp_HashEntry *));\n");
+            emit_raw(ctx, "    return h;\n}\n\n");
+        } else {
+            emit_raw(ctx, "static sp_StrIntHash *sp_StrIntHash_new(void) {\n");
+            emit_raw(ctx, "    sp_StrIntHash *h = (sp_StrIntHash *)calloc(1, sizeof(sp_StrIntHash));\n");
+            emit_raw(ctx, "    h->cap = 16; h->size = 0; h->first = NULL; h->last = NULL;\n");
+            emit_raw(ctx, "    h->buckets = (sp_HashEntry **)calloc(h->cap, sizeof(sp_HashEntry *));\n");
+            emit_raw(ctx, "    return h;\n}\n\n");
+        }
+
+        emit_raw(ctx, "static void sp_StrIntHash_set(sp_StrIntHash *h, const char *key, mrb_int value) {\n");
+        emit_raw(ctx, "    unsigned idx = sp_hash_str(key) %% h->cap;\n");
+        emit_raw(ctx, "    sp_HashEntry *e = h->buckets[idx];\n");
+        emit_raw(ctx, "    while (e) {\n");
+        emit_raw(ctx, "        if (strcmp(e->key, key) == 0) { e->value = value; return; }\n");
+        emit_raw(ctx, "        e = e->next;\n");
+        emit_raw(ctx, "    }\n");
+        emit_raw(ctx, "    e = (sp_HashEntry *)malloc(sizeof(sp_HashEntry));\n");
+        emit_raw(ctx, "    e->key = (char *)malloc(strlen(key) + 1); strcpy(e->key, key);\n");
+        emit_raw(ctx, "    e->value = value;\n");
+        emit_raw(ctx, "    e->next = h->buckets[idx];\n");
+        emit_raw(ctx, "    h->buckets[idx] = e;\n");
+        emit_raw(ctx, "    /* Append to insertion-order list */\n");
+        emit_raw(ctx, "    e->order_next = NULL;\n");
+        emit_raw(ctx, "    e->order_prev = h->last;\n");
+        emit_raw(ctx, "    if (h->last) h->last->order_next = e; else h->first = e;\n");
+        emit_raw(ctx, "    h->last = e;\n");
+        emit_raw(ctx, "    h->size++;\n");
+        emit_raw(ctx, "}\n\n");
+
+        emit_raw(ctx, "static mrb_int sp_StrIntHash_get(sp_StrIntHash *h, const char *key) {\n");
+        emit_raw(ctx, "    unsigned idx = sp_hash_str(key) %% h->cap;\n");
+        emit_raw(ctx, "    sp_HashEntry *e = h->buckets[idx];\n");
+        emit_raw(ctx, "    while (e) {\n");
+        emit_raw(ctx, "        if (strcmp(e->key, key) == 0) return e->value;\n");
+        emit_raw(ctx, "        e = e->next;\n");
+        emit_raw(ctx, "    }\n");
+        emit_raw(ctx, "    return 0;\n");
+        emit_raw(ctx, "}\n\n");
+
+        emit_raw(ctx, "static mrb_int sp_StrIntHash_length(sp_StrIntHash *h) {\n");
+        emit_raw(ctx, "    return h->size;\n}\n\n");
+
+        emit_raw(ctx, "static mrb_bool sp_StrIntHash_has_key(sp_StrIntHash *h, const char *key) {\n");
+        emit_raw(ctx, "    unsigned idx = sp_hash_str(key) %% h->cap;\n");
+        emit_raw(ctx, "    sp_HashEntry *e = h->buckets[idx];\n");
+        emit_raw(ctx, "    while (e) {\n");
+        emit_raw(ctx, "        if (strcmp(e->key, key) == 0) return TRUE;\n");
+        emit_raw(ctx, "        e = e->next;\n");
+        emit_raw(ctx, "    }\n");
+        emit_raw(ctx, "    return FALSE;\n");
+        emit_raw(ctx, "}\n\n");
+
+        emit_raw(ctx, "static mrb_int sp_StrIntHash_delete(sp_StrIntHash *h, const char *key) {\n");
+        emit_raw(ctx, "    unsigned idx = sp_hash_str(key) %% h->cap;\n");
+        emit_raw(ctx, "    sp_HashEntry **pp = &h->buckets[idx];\n");
+        emit_raw(ctx, "    while (*pp) {\n");
+        emit_raw(ctx, "        if (strcmp((*pp)->key, key) == 0) {\n");
+        emit_raw(ctx, "            sp_HashEntry *e = *pp;\n");
+        emit_raw(ctx, "            mrb_int val = e->value;\n");
+        emit_raw(ctx, "            *pp = e->next;\n");
+        emit_raw(ctx, "            /* Remove from insertion-order list */\n");
+        emit_raw(ctx, "            if (e->order_prev) e->order_prev->order_next = e->order_next;\n");
+        emit_raw(ctx, "            else h->first = e->order_next;\n");
+        emit_raw(ctx, "            if (e->order_next) e->order_next->order_prev = e->order_prev;\n");
+        emit_raw(ctx, "            else h->last = e->order_prev;\n");
+        emit_raw(ctx, "            free(e->key); free(e);\n");
+        emit_raw(ctx, "            h->size--;\n");
+        emit_raw(ctx, "            return val;\n");
+        emit_raw(ctx, "        }\n");
+        emit_raw(ctx, "        pp = &(*pp)->next;\n");
+        emit_raw(ctx, "    }\n");
+        emit_raw(ctx, "    return 0;\n");
+        emit_raw(ctx, "}\n\n");
+    }
 
     /* Lambda/closure runtime (sp_Val) — emitted only when lambdas are used */
     if (ctx->lambda_mode) {
@@ -5081,28 +5355,40 @@ void codegen_program(codegen_ctx_t *ctx, pm_node_t *root) {
     /* Pass 2c: Re-infer variable types now that function return types are resolved */
     infer_pass(ctx, root);
 
-    /* Detect needs_gc: any non-value-type class or sp_IntArray triggers GC */
+    /* Detect needs_hash: any HASH-typed variable triggers hash runtime */
+    for (int i = 0; i < ctx->var_count; i++) {
+        if (ctx->vars[i].type.kind == SPINEL_TYPE_HASH) {
+            ctx->needs_hash = true;
+            break;
+        }
+    }
+
+    /* Detect needs_gc: any non-value-type class, sp_IntArray, or sp_StrIntHash triggers GC */
     for (int i = 0; i < ctx->class_count && !ctx->needs_gc; i++) {
         if (!ctx->classes[i].is_value_type)
             ctx->needs_gc = true;
     }
     for (int i = 0; i < ctx->var_count && !ctx->needs_gc; i++) {
-        if (ctx->vars[i].type.kind == SPINEL_TYPE_ARRAY)
+        if (ctx->vars[i].type.kind == SPINEL_TYPE_ARRAY ||
+            ctx->vars[i].type.kind == SPINEL_TYPE_HASH)
             ctx->needs_gc = true;
     }
     for (int i = 0; i < ctx->func_count && !ctx->needs_gc; i++) {
         func_info_t *f = &ctx->funcs[i];
-        if (f->return_type.kind == SPINEL_TYPE_ARRAY) { ctx->needs_gc = true; break; }
+        if (f->return_type.kind == SPINEL_TYPE_ARRAY ||
+            f->return_type.kind == SPINEL_TYPE_HASH) { ctx->needs_gc = true; break; }
         for (int j = 0; j < f->param_count && !ctx->needs_gc; j++)
-            if (f->params[j].type.kind == SPINEL_TYPE_ARRAY) ctx->needs_gc = true;
-        /* Also infer function body variables to detect array usage */
+            if (f->params[j].type.kind == SPINEL_TYPE_ARRAY ||
+                f->params[j].type.kind == SPINEL_TYPE_HASH) ctx->needs_gc = true;
+        /* Also infer function body variables to detect array/hash usage */
         if (!ctx->needs_gc && f->body_node) {
             int saved_vc = ctx->var_count;
             for (int j = 0; j < f->param_count; j++)
                 var_declare(ctx, f->params[j].name, f->params[j].type, false);
             infer_pass(ctx, f->body_node);
             for (int j = saved_vc; j < ctx->var_count; j++) {
-                if (ctx->vars[j].type.kind == SPINEL_TYPE_ARRAY) {
+                if (ctx->vars[j].type.kind == SPINEL_TYPE_ARRAY ||
+                    ctx->vars[j].type.kind == SPINEL_TYPE_HASH) {
                     ctx->needs_gc = true;
                     break;
                 }
@@ -5110,19 +5396,21 @@ void codegen_program(codegen_ctx_t *ctx, pm_node_t *root) {
             ctx->var_count = saved_vc;
         }
     }
-    /* Also check class method bodies for array usage */
+    /* Also check class method bodies for array/hash usage */
     for (int i = 0; i < ctx->class_count && !ctx->needs_gc; i++) {
         class_info_t *cls = &ctx->classes[i];
         for (int mi = 0; mi < cls->method_count && !ctx->needs_gc; mi++) {
             method_info_t *m = &cls->methods[mi];
-            if (m->return_type.kind == SPINEL_TYPE_ARRAY) { ctx->needs_gc = true; break; }
+            if (m->return_type.kind == SPINEL_TYPE_ARRAY ||
+                m->return_type.kind == SPINEL_TYPE_HASH) { ctx->needs_gc = true; break; }
             if (m->body_node) {
                 int saved_vc = ctx->var_count;
                 for (int j = 0; j < m->param_count; j++)
                     var_declare(ctx, m->params[j].name, m->params[j].type, false);
                 infer_pass(ctx, m->body_node);
                 for (int j = saved_vc; j < ctx->var_count; j++) {
-                    if (ctx->vars[j].type.kind == SPINEL_TYPE_ARRAY) {
+                    if (ctx->vars[j].type.kind == SPINEL_TYPE_ARRAY ||
+                        ctx->vars[j].type.kind == SPINEL_TYPE_HASH) {
                         ctx->needs_gc = true;
                         break;
                     }
@@ -5364,6 +5652,13 @@ void codegen_program(codegen_ctx_t *ctx, pm_node_t *root) {
             else if (v->type.kind == SPINEL_TYPE_BOOLEAN) init = " = FALSE";
             else if (v->type.kind == SPINEL_TYPE_ARRAY) {
                 emit_raw(ctx, "    sp_IntArray *%s = NULL;\n", cn);
+                if (ctx->needs_gc)
+                    emit_raw(ctx, "    SP_GC_ROOT(%s);\n", cn);
+                free(ct); free(cn);
+                continue;
+            }
+            else if (v->type.kind == SPINEL_TYPE_HASH) {
+                emit_raw(ctx, "    sp_StrIntHash *%s = NULL;\n", cn);
                 if (ctx->needs_gc)
                     emit_raw(ctx, "    SP_GC_ROOT(%s);\n", cn);
                 free(ct); free(cn);
