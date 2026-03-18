@@ -67,8 +67,10 @@ typedef struct {
 #define MAX_METHODS 32
 typedef struct {
     char name[64];
+    char superclass[64];   /* superclass name ("" if none) */
     ivar_info_t ivars[MAX_IVARS];
     int ivar_count;
+    int own_ivar_start;    /* index where this class's own ivars begin (after inherited) */
     method_info_t methods[MAX_METHODS];
     int method_count;
     bool is_value_type;    /* pass by value (small: e.g., Vec) */

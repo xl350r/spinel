@@ -137,6 +137,26 @@ static method_info_t *find_method(class_info_t *cls, const char *name) {
     return NULL;
 }
 
+/* Find method walking up inheritance chain; sets *owner to defining class */
+static method_info_t *find_method_inherited(codegen_ctx_t *ctx,
+                                             class_info_t *cls,
+                                             const char *name,
+                                             class_info_t **owner) {
+    while (cls) {
+        method_info_t *m = find_method(cls, name);
+        if (m) {
+            if (owner) *owner = cls;
+            return m;
+        }
+        if (cls->superclass[0])
+            cls = find_class(ctx, cls->superclass);
+        else
+            break;
+    }
+    if (owner) *owner = NULL;
+    return NULL;
+}
+
 static ivar_info_t *find_ivar(class_info_t *cls, const char *name) {
     if (!cls) return NULL;
     for (int i = 0; i < cls->ivar_count; i++)
@@ -356,6 +376,15 @@ static void analyze_class(codegen_ctx_t *ctx, pm_class_node_t *node) {
         char *name = cstr(ctx, cr->name);
         snprintf(cls->name, sizeof(cls->name), "%s", name);
         free(name);
+    }
+
+    /* Extract superclass name (class Dog < Animal) */
+    cls->superclass[0] = '\0';
+    if (node->superclass && PM_NODE_TYPE(node->superclass) == PM_CONSTANT_READ_NODE) {
+        pm_constant_read_node_t *scr = (pm_constant_read_node_t *)node->superclass;
+        char *sname = cstr(ctx, scr->name);
+        snprintf(cls->superclass, sizeof(cls->superclass), "%s", sname);
+        free(sname);
     }
 
     if (!node->body) return;
@@ -769,13 +798,14 @@ static vtype_t infer_type(codegen_ctx_t *ctx, pm_node_t *node) {
             free(mod_name);
         }
 
-        /* Method calls on typed objects */
+        /* Method calls on typed objects (with inheritance) */
         if (call->receiver) {
             vtype_t recv_t = infer_type(ctx, call->receiver);
             if (recv_t.kind == SPINEL_TYPE_OBJECT) {
                 class_info_t *cls = find_class(ctx, recv_t.klass);
                 if (cls) {
-                    method_info_t *m = find_method(cls, method);
+                    class_info_t *owner = NULL;
+                    method_info_t *m = find_method_inherited(ctx, cls, method, &owner);
                     if (m) {
                         /* Getter returns ivar type */
                         if (m->is_getter) {
@@ -789,9 +819,9 @@ static vtype_t infer_type(codegen_ctx_t *ctx, pm_node_t *node) {
             }
         }
 
-        /* Receiver-less call in class context → implicit self method */
+        /* Receiver-less call in class context → implicit self method (with inheritance) */
         if (!call->receiver && ctx->current_class) {
-            method_info_t *cm = find_method(ctx->current_class, method);
+            method_info_t *cm = find_method_inherited(ctx, ctx->current_class, method, NULL);
             if (cm) { free(method); return cm->return_type; }
         }
 
@@ -1125,8 +1155,11 @@ static void resolve_class_types(codegen_ctx_t *ctx, pm_node_t *prog_root) {
                     all_simple = false;
             }
             cls->is_value_type = all_simple && cls->ivar_count <= 4 && cls->ivar_count > 0;
+        }
 
-            /* Resolve method return types */
+        /* Resolve method return types for ALL classes (separate loop) */
+        for (int ci = 0; ci < ctx->class_count; ci++) {
+            class_info_t *cls = &ctx->classes[ci];
             for (int mi = 0; mi < cls->method_count; mi++) {
                 method_info_t *m = &cls->methods[mi];
                 if (m->is_getter) {
@@ -1147,6 +1180,22 @@ static void resolve_class_types(codegen_ctx_t *ctx, pm_node_t *prog_root) {
                     m->return_type = vt_obj("Vec");
                 if (strcmp(m->name, "render") == 0)
                     m->return_type = vt_prim(SPINEL_TYPE_NIL);
+
+                /* Generic: infer return type from method body if still VALUE */
+                if (m->return_type.kind == SPINEL_TYPE_VALUE && !m->is_getter &&
+                    !m->is_setter && strcmp(m->name, "initialize") != 0 && m->body_node) {
+                    /* Temporarily register params in var table */
+                    int sv = ctx->var_count;
+                    class_info_t *saved_cls = ctx->current_class;
+                    ctx->current_class = cls;
+                    for (int pi = 0; pi < m->param_count; pi++)
+                        var_declare(ctx, m->params[pi].name, m->params[pi].type, false);
+                    vtype_t rt = infer_type(ctx, m->body_node);
+                    ctx->var_count = sv;
+                    ctx->current_class = saved_cls;
+                    if (rt.kind != SPINEL_TYPE_VALUE && rt.kind != SPINEL_TYPE_UNKNOWN)
+                        m->return_type = rt;
+                }
             }
         }
 
@@ -1495,6 +1544,125 @@ static void resolve_class_types(codegen_ctx_t *ctx, pm_node_t *prog_root) {
             if (spheres) spheres->type = vt_prim(SPINEL_TYPE_VALUE); /* handled specially */
             scene->is_value_type = false;
         }
+
+        /* Generic: infer constructor arg types from call sites (ClassName.new(args)) */
+        if (prog_root && PM_NODE_TYPE(prog_root) == PM_PROGRAM_NODE) {
+            pm_program_node_t *prog = (pm_program_node_t *)prog_root;
+            if (prog->statements) {
+                pm_statements_node_t *stmts = prog->statements;
+                /* Simple stack walk of all top-level code looking for new() calls */
+                pm_node_t *stack[512];
+                int sp = 0;
+                for (size_t si = 0; si < stmts->body.size && sp < 510; si++)
+                    stack[sp++] = stmts->body.nodes[si];
+                while (sp > 0) {
+                    pm_node_t *cur = stack[--sp];
+                    if (!cur) continue;
+                    if (PM_NODE_TYPE(cur) == PM_CALL_NODE) {
+                        pm_call_node_t *call = (pm_call_node_t *)cur;
+                        char *mname = cstr(ctx, call->name);
+                        if (strcmp(mname, "new") == 0 && call->receiver &&
+                            PM_NODE_TYPE(call->receiver) == PM_CONSTANT_READ_NODE && call->arguments) {
+                            pm_constant_read_node_t *cr = (pm_constant_read_node_t *)call->receiver;
+                            char *cname = cstr(ctx, cr->name);
+                            class_info_t *cls = find_class(ctx, cname);
+                            method_info_t *init = cls ? find_method(cls, "initialize") : NULL;
+                            /* For classes without own initialize, look up parent's */
+                            if (cls && !init && cls->superclass[0]) {
+                                class_info_t *parent = find_class(ctx, cls->superclass);
+                                init = parent ? find_method(parent, "initialize") : NULL;
+                            }
+                            if (init) {
+                                for (int ai = 0; ai < (int)call->arguments->arguments.size &&
+                                     ai < init->param_count; ai++) {
+                                    if (init->params[ai].type.kind == SPINEL_TYPE_VALUE) {
+                                        vtype_t at = infer_type(ctx, call->arguments->arguments.nodes[ai]);
+                                        if (at.kind != SPINEL_TYPE_VALUE && at.kind != SPINEL_TYPE_UNKNOWN)
+                                            init->params[ai].type = at;
+                                    }
+                                }
+                            }
+                            free(cname);
+                        }
+                        free(mname);
+                        /* Push children */
+                        if (call->receiver && sp < 510) stack[sp++] = call->receiver;
+                        if (call->arguments) {
+                            for (size_t ai = 0; ai < call->arguments->arguments.size && sp < 510; ai++)
+                                stack[sp++] = call->arguments->arguments.nodes[ai];
+                        }
+                    }
+                    if (PM_NODE_TYPE(cur) == PM_LOCAL_VARIABLE_WRITE_NODE) {
+                        pm_local_variable_write_node_t *lw = (pm_local_variable_write_node_t *)cur;
+                        if (sp < 510) stack[sp++] = lw->value;
+                    }
+                    if (PM_NODE_TYPE(cur) == PM_STATEMENTS_NODE) {
+                        pm_statements_node_t *ss = (pm_statements_node_t *)cur;
+                        for (size_t si = 0; si < ss->body.size && sp < 510; si++)
+                            stack[sp++] = ss->body.nodes[si];
+                    }
+                }
+            }
+        }
+
+        /* Propagate init param types through super() calls:
+         * If Dog#initialize calls super(name), Dog's `name` param inherits
+         * type from Animal#initialize's corresponding param */
+        for (int ci = 0; ci < ctx->class_count; ci++) {
+            class_info_t *cls = &ctx->classes[ci];
+            if (!cls->superclass[0]) continue;
+            class_info_t *parent = find_class(ctx, cls->superclass);
+            if (!parent) continue;
+            method_info_t *init = find_method(cls, "initialize");
+            method_info_t *parent_init = find_method(parent, "initialize");
+            if (!init || !parent_init || !init->body_node) continue;
+            /* Scan init body for PM_SUPER_NODE */
+            pm_node_t *ibody = init->body_node;
+            if (PM_NODE_TYPE(ibody) != PM_STATEMENTS_NODE) continue;
+            pm_statements_node_t *istmts = (pm_statements_node_t *)ibody;
+            for (size_t si = 0; si < istmts->body.size; si++) {
+                pm_node_t *s = istmts->body.nodes[si];
+                if (PM_NODE_TYPE(s) != PM_SUPER_NODE) continue;
+                pm_super_node_t *sn = (pm_super_node_t *)s;
+                if (!sn->arguments) continue;
+                /* Match super args to parent init params */
+                for (size_t ai = 0; ai < sn->arguments->arguments.size &&
+                     (int)ai < parent_init->param_count; ai++) {
+                    pm_node_t *arg = sn->arguments->arguments.nodes[ai];
+                    if (PM_NODE_TYPE(arg) != PM_LOCAL_VARIABLE_READ_NODE) continue;
+                    pm_local_variable_read_node_t *lv = (pm_local_variable_read_node_t *)arg;
+                    char *pname = cstr(ctx, lv->name);
+                    /* Find this param in child's init */
+                    for (int pi = 0; pi < init->param_count; pi++) {
+                        if (strcmp(init->params[pi].name, pname) == 0 &&
+                            init->params[pi].type.kind == SPINEL_TYPE_VALUE &&
+                            parent_init->params[ai].type.kind != SPINEL_TYPE_VALUE) {
+                            init->params[pi].type = parent_init->params[ai].type;
+                        }
+                    }
+                    free(pname);
+                }
+            }
+        }
+
+        /* Propagate parent ivar types to children (inherited ivars are copies) */
+        for (int ci = 0; ci < ctx->class_count; ci++) {
+            class_info_t *cls = &ctx->classes[ci];
+            if (!cls->superclass[0]) continue;
+            class_info_t *parent = find_class(ctx, cls->superclass);
+            if (!parent) continue;
+            for (int j = 0; j < parent->ivar_count && j < cls->own_ivar_start; j++)
+                cls->ivars[j].type = parent->ivars[j].type;
+            /* Also propagate is_value_type: child with string ivars is NOT value type */
+            bool all_simple = true;
+            for (int j = 0; j < cls->ivar_count; j++) {
+                if (cls->ivars[j].type.kind != SPINEL_TYPE_FLOAT &&
+                    cls->ivars[j].type.kind != SPINEL_TYPE_INTEGER &&
+                    cls->ivars[j].type.kind != SPINEL_TYPE_BOOLEAN)
+                    all_simple = false;
+            }
+            cls->is_value_type = all_simple && cls->ivar_count <= 4 && cls->ivar_count > 0;
+        }
     }
 }
 
@@ -1526,8 +1694,98 @@ static void emit_struct(codegen_ctx_t *ctx, class_info_t *cls) {
     emit_raw(ctx, "};\n\n");
 }
 
+/* Emit a standalone initialize function for classes used as superclass.
+ * This is called via super(args) from child constructors. */
+static void emit_initialize_func(codegen_ctx_t *ctx, class_info_t *cls) {
+    /* Only emit if this class is a superclass of some other class */
+    bool is_superclass = false;
+    for (int i = 0; i < ctx->class_count; i++) {
+        if (strcmp(ctx->classes[i].superclass, cls->name) == 0) {
+            is_superclass = true; break;
+        }
+    }
+    if (!is_superclass) return;
+
+    method_info_t *init = find_method(cls, "initialize");
+    if (!init) return;
+
+    /* void sp_Animal_initialize(sp_Animal *self, params...) */
+    emit_raw(ctx, "static void sp_%s_initialize(", cls->name);
+    if (cls->is_value_type)
+        emit_raw(ctx, "sp_%s *self", cls->name);
+    else
+        emit_raw(ctx, "sp_%s *self", cls->name);
+    for (int i = 0; i < init->param_count; i++) {
+        emit_raw(ctx, ", ");
+        char *ct = vt_ctype(ctx, init->params[i].type, false);
+        emit_raw(ctx, "%s lv_%s", ct, init->params[i].name);
+        free(ct);
+    }
+    emit_raw(ctx, ") {\n");
+
+    /* Emit initialize body statements */
+    ctx->current_class = cls;
+    if (init->body_node && PM_NODE_TYPE(init->body_node) == PM_STATEMENTS_NODE) {
+        pm_statements_node_t *stmts = (pm_statements_node_t *)init->body_node;
+        for (size_t i = 0; i < stmts->body.size; i++) {
+            pm_node_t *s = stmts->body.nodes[i];
+            if (PM_NODE_TYPE(s) == PM_INSTANCE_VARIABLE_WRITE_NODE) {
+                pm_instance_variable_write_node_t *iw =
+                    (pm_instance_variable_write_node_t *)s;
+                char *ivname = cstr(ctx, iw->name);
+                const char *field = ivname + 1;
+                char *val_expr = codegen_expr(ctx, iw->value);
+                if (strstr(val_expr, "array_init") == NULL)
+                    emit_raw(ctx, "    self->%s = %s;\n", field, val_expr);
+                free(ivname);
+                free(val_expr);
+            }
+        }
+    }
+    ctx->current_class = NULL;
+    emit_raw(ctx, "}\n\n");
+}
+
 static void emit_constructor(codegen_ctx_t *ctx, class_info_t *cls) {
     method_info_t *init = find_method(cls, "initialize");
+    /* If no own initialize but has superclass, generate constructor that uses parent's */
+    if (!init && cls->superclass[0]) {
+        class_info_t *parent = find_class(ctx, cls->superclass);
+        method_info_t *parent_init = parent ? find_method(parent, "initialize") : NULL;
+        if (parent && parent_init) {
+            /* Generate: sp_Cat *sp_Cat_new(params...) { alloc; sp_Animal_initialize((sp_Animal*)self, params); return self; } */
+            emit_raw(ctx, "static sp_%s *sp_%s_new(", cls->name, cls->name);
+            for (int i = 0; i < parent_init->param_count; i++) {
+                if (i > 0) emit_raw(ctx, ", ");
+                char *ct = vt_ctype(ctx, parent_init->params[i].type, false);
+                emit_raw(ctx, "%s lv_%s", ct, parent_init->params[i].name);
+                free(ct);
+            }
+            if (parent_init->param_count == 0) emit_raw(ctx, "void");
+            emit_raw(ctx, ") {\n");
+
+            if (ctx->needs_gc) {
+                emit_raw(ctx, "    SP_GC_SAVE();\n");
+                emit_raw(ctx, "    sp_%s *self = (sp_%s *)sp_gc_alloc(sizeof(sp_%s), NULL, NULL);\n",
+                         cls->name, cls->name, cls->name);
+                emit_raw(ctx, "    SP_GC_ROOT(self);\n");
+            } else {
+                emit_raw(ctx, "    sp_%s *self = (sp_%s *)calloc(1, sizeof(sp_%s));\n",
+                         cls->name, cls->name, cls->name);
+            }
+            /* Call parent's initialize */
+            emit_raw(ctx, "    sp_%s_initialize((sp_%s *)self", parent->name, parent->name);
+            for (int i = 0; i < parent_init->param_count; i++)
+                emit_raw(ctx, ", lv_%s", parent_init->params[i].name);
+            emit_raw(ctx, ");\n");
+
+            if (ctx->needs_gc)
+                emit_raw(ctx, "    SP_GC_RESTORE();\n");
+            emit_raw(ctx, "    return self;\n");
+            emit_raw(ctx, "}\n\n");
+        }
+        return;
+    }
     if (!init) return;
 
     if (cls->is_value_type) {
@@ -1594,6 +1852,25 @@ static void emit_constructor(codegen_ctx_t *ctx, class_info_t *cls) {
                 }
                 free(ivname);
                 free(val_expr);
+            } else if (PM_NODE_TYPE(s) == PM_SUPER_NODE) {
+                /* super(args) in initialize — call parent's initialize */
+                pm_super_node_t *sn = (pm_super_node_t *)s;
+                class_info_t *parent = cls->superclass[0] ? find_class(ctx, cls->superclass) : NULL;
+                if (parent) {
+                    int argc = sn->arguments ? (int)sn->arguments->arguments.size : 0;
+                    char *args = xstrdup("");
+                    for (int i = 0; i < argc; i++) {
+                        char *a = codegen_expr(ctx, sn->arguments->arguments.nodes[i]);
+                        char *na = sfmt("%s, %s", args, a);
+                        free(args); free(a);
+                        args = na;
+                    }
+                    if (cls->is_value_type)
+                        emit_raw(ctx, "    sp_%s_initialize(&self%s);\n", parent->name, args);
+                    else
+                        emit_raw(ctx, "    sp_%s_initialize((sp_%s *)self%s);\n", parent->name, parent->name, args);
+                    free(args);
+                }
             } else if (PM_NODE_TYPE(s) == PM_CALL_NODE) {
                 /* Handle @spheres[0] = Sphere.new(...) etc. */
                 int saved_indent = ctx->indent;
@@ -2086,11 +2363,12 @@ static char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node) {
             if (recv_t.kind == SPINEL_TYPE_OBJECT) {
                 class_info_t *cls = find_class(ctx, recv_t.klass);
                 if (cls) {
-                    method_info_t *m = find_method(cls, method);
+                    class_info_t *owner = NULL;
+                    method_info_t *m = find_method_inherited(ctx, cls, method, &owner);
                     if (m) {
                         char *recv = codegen_expr(ctx, call->receiver);
 
-                        /* Inline getter: recv.field */
+                        /* Inline getter: recv.field (works for inherited fields too) */
                         if (m->is_getter) {
                             char *r;
                             if (cls->is_value_type)
@@ -2114,7 +2392,7 @@ static char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node) {
                             return r;
                         }
 
-                        /* Direct method call */
+                        /* Direct method call (with cast if inherited) */
                         int argc = call->arguments ? (int)call->arguments->arguments.size : 0;
                         char *args = xstrdup("");
                         for (int i = 0; i < argc; i++) {
@@ -2125,10 +2403,15 @@ static char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node) {
                         }
 
                         char *r;
-                        if (cls->is_value_type)
+                        if (owner && owner != cls) {
+                            /* Inherited method: cast receiver to parent type */
+                            if (cls->is_value_type)
+                                r = sfmt("sp_%s_%s(%s%s)", owner->name, method, recv, args);
+                            else
+                                r = sfmt("sp_%s_%s((sp_%s *)%s%s)", owner->name, method, owner->name, recv, args);
+                        } else {
                             r = sfmt("sp_%s_%s(%s%s)", recv_t.klass, method, recv, args);
-                        else
-                            r = sfmt("sp_%s_%s(%s%s)", recv_t.klass, method, recv, args);
+                        }
                         free(recv); free(args); free(method);
                         return r;
                     }
@@ -2156,10 +2439,34 @@ static char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node) {
             }
         }
 
-        /* Receiver-less: implicit self method call in class body */
+        /* Receiver-less: implicit self method call in class body (with inheritance) */
         if (!call->receiver && ctx->current_class) {
-            method_info_t *m = find_method(ctx->current_class, method);
+            class_info_t *owner = NULL;
+            method_info_t *m = find_method_inherited(ctx, ctx->current_class, method, &owner);
             if (m) {
+                /* Inline getter: self.field or self->field */
+                if (m->is_getter) {
+                    char *r;
+                    if (ctx->current_class->is_value_type)
+                        r = sfmt("self.%s", m->accessor_ivar);
+                    else
+                        r = sfmt("self->%s", m->accessor_ivar);
+                    free(method);
+                    return r;
+                }
+                /* Inline setter */
+                if (m->is_setter && call->arguments &&
+                    call->arguments->arguments.size == 1) {
+                    char *val = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                    char *r;
+                    if (ctx->current_class->is_value_type)
+                        r = sfmt("(self.%s = %s)", m->accessor_ivar, val);
+                    else
+                        r = sfmt("(self->%s = %s)", m->accessor_ivar, val);
+                    free(val); free(method);
+                    return r;
+                }
+
                 int argc = call->arguments ? (int)call->arguments->arguments.size : 0;
                 char *args = xstrdup("");
                 for (int i = 0; i < argc; i++) {
@@ -2168,8 +2475,17 @@ static char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node) {
                     free(args); free(a);
                     args = na;
                 }
-                char *r = sfmt("sp_%s_%s(self%s)",
-                               ctx->current_class->name, method, args);
+                char *r;
+                if (owner && owner != ctx->current_class) {
+                    /* Inherited method: cast self to parent type */
+                    if (ctx->current_class->is_value_type)
+                        r = sfmt("sp_%s_%s(self%s)", owner->name, method, args);
+                    else
+                        r = sfmt("sp_%s_%s((sp_%s *)self%s)", owner->name, method, owner->name, args);
+                } else {
+                    r = sfmt("sp_%s_%s(self%s)",
+                                   ctx->current_class->name, method, args);
+                }
                 free(args); free(method);
                 return r;
             }
@@ -2477,6 +2793,40 @@ static char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node) {
             return r;
         }
         return xstrdup("_block(_block_env, 0)");
+    }
+
+    case PM_SUPER_NODE: {
+        /* super(args) — call parent's same-named method */
+        pm_super_node_t *sn = (pm_super_node_t *)node;
+        if (ctx->current_class && ctx->current_method && ctx->current_class->superclass[0]) {
+            class_info_t *parent = find_class(ctx, ctx->current_class->superclass);
+            if (parent) {
+                int argc = sn->arguments ? (int)sn->arguments->arguments.size : 0;
+                char *args = xstrdup("");
+                for (int i = 0; i < argc; i++) {
+                    char *a = codegen_expr(ctx, sn->arguments->arguments.nodes[i]);
+                    char *na = sfmt("%s, %s", args, a);
+                    free(args); free(a);
+                    args = na;
+                }
+                char *r;
+                if (strcmp(ctx->current_method->name, "initialize") == 0) {
+                    /* super in initialize: call parent's initialize on self */
+                    if (ctx->current_class->is_value_type)
+                        r = sfmt("sp_%s_initialize(&self%s)", parent->name, args);
+                    else
+                        r = sfmt("sp_%s_initialize((sp_%s *)self%s)", parent->name, parent->name, args);
+                } else {
+                    if (ctx->current_class->is_value_type)
+                        r = sfmt("sp_%s_%s(self%s)", parent->name, ctx->current_method->name, args);
+                    else
+                        r = sfmt("sp_%s_%s((sp_%s *)self%s)", parent->name, ctx->current_method->name, parent->name, args);
+                }
+                free(args);
+                return r;
+            }
+        }
+        return xstrdup("/* super */");
     }
 
     case PM_ARRAY_NODE: {
@@ -4382,6 +4732,38 @@ void codegen_program(codegen_ctx_t *ctx, pm_node_t *root) {
     /* Pass 1: Analyze classes, modules, functions */
     class_analysis_pass(ctx, root);
 
+    /* Pass 1b: Resolve class inheritance — copy parent ivars into children */
+    for (int ci = 0; ci < ctx->class_count; ci++) {
+        class_info_t *cls = &ctx->classes[ci];
+        if (!cls->superclass[0]) {
+            cls->own_ivar_start = 0;
+            continue;
+        }
+        class_info_t *parent = find_class(ctx, cls->superclass);
+        if (!parent) {
+            cls->own_ivar_start = 0;
+            continue;
+        }
+        /* Prepend parent ivars that child doesn't already have */
+        int parent_ivars = parent->ivar_count;
+        if (parent_ivars > 0) {
+            /* Shift existing (child's own) ivars right */
+            int own = cls->ivar_count;
+            for (int j = own - 1; j >= 0; j--)
+                cls->ivars[j + parent_ivars] = cls->ivars[j];
+            /* Copy parent ivars to front */
+            for (int j = 0; j < parent_ivars; j++)
+                cls->ivars[j] = parent->ivars[j];
+            cls->ivar_count = parent_ivars + own;
+        }
+        cls->own_ivar_start = parent_ivars;
+
+        /* For classes without their own initialize, inherit is_value_type from parent */
+        if (!find_method(cls, "initialize")) {
+            cls->is_value_type = parent->is_value_type;
+        }
+    }
+
     /* Pass 2: Type inference for top-level code */
     infer_pass(ctx, root);
 
@@ -4552,6 +4934,10 @@ void codegen_program(codegen_ctx_t *ctx, pm_node_t *root) {
         }
         emit_raw(ctx, "\n");
     }
+
+    /* Initialize functions for superclasses (called via super) */
+    for (int i = 0; i < ctx->class_count; i++)
+        emit_initialize_func(ctx, &ctx->classes[i]);
 
     /* Constructors */
     for (int i = 0; i < ctx->class_count; i++)
