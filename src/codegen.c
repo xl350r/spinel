@@ -114,6 +114,7 @@ const char *spinel_type_cname(spinel_type_t k) {
     case SPINEL_TYPE_ARRAY:   return "sp_IntArray *";
     case SPINEL_TYPE_HASH:    return "sp_StrIntHash *";
     case SPINEL_TYPE_PROC:    return "sp_Val *";
+    case SPINEL_TYPE_STR_ARRAY: return "sp_StrArray *";
     default:                  return "mrb_int"; /* fallback for standalone mode */
     }
 }
@@ -809,6 +810,20 @@ static vtype_t infer_type(codegen_ctx_t *ctx, pm_node_t *node) {
             strcmp(method, "[]") != 0) {
             vtype_t lt = infer_type(ctx, call->receiver);
             vtype_t rt = infer_type(ctx, call->arguments->arguments.nodes[0]);
+            /* String * Integer → STRING (repetition) */
+            if (lt.kind == SPINEL_TYPE_STRING && rt.kind == SPINEL_TYPE_INTEGER &&
+                strcmp(method, "*") == 0) {
+                free(method);
+                return vt_prim(SPINEL_TYPE_STRING);
+            }
+            /* String comparison operators → BOOLEAN */
+            if (lt.kind == SPINEL_TYPE_STRING && rt.kind == SPINEL_TYPE_STRING &&
+                (strcmp(method, "==") == 0 || strcmp(method, "!=") == 0 ||
+                 strcmp(method, "<") == 0 || strcmp(method, ">") == 0 ||
+                 strcmp(method, "<=") == 0 || strcmp(method, ">=") == 0)) {
+                free(method);
+                return vt_prim(SPINEL_TYPE_BOOLEAN);
+            }
             if (vt_is_numeric(lt) || vt_is_numeric(rt) ||
                 lt.kind == SPINEL_TYPE_BOOLEAN || rt.kind == SPINEL_TYPE_BOOLEAN) {
                 result = binop_result(lt, rt, method);
@@ -859,6 +874,19 @@ static vtype_t infer_type(codegen_ctx_t *ctx, pm_node_t *node) {
                 if (strcmp(method, "upcase") == 0 || strcmp(method, "downcase") == 0) { free(method); return vt_prim(SPINEL_TYPE_STRING); }
                 if (strcmp(method, "include?") == 0) { free(method); return vt_prim(SPINEL_TYPE_BOOLEAN); }
                 if (strcmp(method, "+") == 0) { free(method); return vt_prim(SPINEL_TYPE_STRING); }
+                if (strcmp(method, "strip") == 0 || strcmp(method, "chomp") == 0 ||
+                    strcmp(method, "capitalize") == 0 || strcmp(method, "reverse") == 0) { free(method); return vt_prim(SPINEL_TYPE_STRING); }
+                if (strcmp(method, "gsub") == 0 || strcmp(method, "sub") == 0) { free(method); return vt_prim(SPINEL_TYPE_STRING); }
+                if (strcmp(method, "count") == 0) { free(method); return vt_prim(SPINEL_TYPE_INTEGER); }
+                if (strcmp(method, "start_with?") == 0 || strcmp(method, "end_with?") == 0) { free(method); return vt_prim(SPINEL_TYPE_BOOLEAN); }
+                if (strcmp(method, "==") == 0 || strcmp(method, "!=") == 0 || strcmp(method, "<") == 0 ||
+                    strcmp(method, ">") == 0 || strcmp(method, "<=") == 0 || strcmp(method, ">=") == 0) { free(method); return vt_prim(SPINEL_TYPE_BOOLEAN); }
+                if (strcmp(method, "*") == 0) { free(method); return vt_prim(SPINEL_TYPE_STRING); }
+                if (strcmp(method, "split") == 0) { free(method); return vt_prim(SPINEL_TYPE_STR_ARRAY); }
+            }
+            /* String array methods */
+            if (recv_t.kind == SPINEL_TYPE_STR_ARRAY) {
+                if (strcmp(method, "length") == 0 || strcmp(method, "size") == 0) { free(method); return vt_prim(SPINEL_TYPE_INTEGER); }
             }
             /* Numeric methods */
             if (recv_t.kind == SPINEL_TYPE_INTEGER) {
@@ -2408,6 +2436,44 @@ static char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node) {
         pm_call_node_t *call = (pm_call_node_t *)node;
         char *method = cstr(ctx, call->name);
 
+        /* String binary operators: ==, !=, <, >, <=, >=, * */
+        if (call->receiver && call->arguments &&
+            call->arguments->arguments.size == 1) {
+            vtype_t lt = infer_type(ctx, call->receiver);
+            vtype_t rt = infer_type(ctx, call->arguments->arguments.nodes[0]);
+            if (lt.kind == SPINEL_TYPE_STRING && rt.kind == SPINEL_TYPE_STRING) {
+                if (strcmp(method, "==") == 0 || strcmp(method, "!=") == 0 ||
+                    strcmp(method, "<") == 0 || strcmp(method, ">") == 0 ||
+                    strcmp(method, "<=") == 0 || strcmp(method, ">=") == 0) {
+                    char *left = codegen_expr(ctx, call->receiver);
+                    char *right = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                    char *r;
+                    if (strcmp(method, "==") == 0)
+                        r = sfmt("(strcmp(%s, %s) == 0)", left, right);
+                    else if (strcmp(method, "!=") == 0)
+                        r = sfmt("(strcmp(%s, %s) != 0)", left, right);
+                    else if (strcmp(method, "<") == 0)
+                        r = sfmt("(strcmp(%s, %s) < 0)", left, right);
+                    else if (strcmp(method, ">") == 0)
+                        r = sfmt("(strcmp(%s, %s) > 0)", left, right);
+                    else if (strcmp(method, "<=") == 0)
+                        r = sfmt("(strcmp(%s, %s) <= 0)", left, right);
+                    else
+                        r = sfmt("(strcmp(%s, %s) >= 0)", left, right);
+                    free(left); free(right); free(method);
+                    return r;
+                }
+            }
+            if (lt.kind == SPINEL_TYPE_STRING && rt.kind == SPINEL_TYPE_INTEGER &&
+                strcmp(method, "*") == 0) {
+                char *left = codegen_expr(ctx, call->receiver);
+                char *right = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                char *r = sfmt("sp_str_repeat(%s, %s)", left, right);
+                free(left); free(right); free(method);
+                return r;
+            }
+        }
+
         /* Binary operators on numeric types → direct C ops */
         if (call->receiver && call->arguments &&
             call->arguments->arguments.size == 1) {
@@ -2835,6 +2901,65 @@ static char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node) {
                     r = sfmt("sp_str_concat(%s, %s)", recv, arg);
                     free(arg);
                 }
+                else if (strcmp(method, "strip") == 0)
+                    r = sfmt("sp_str_strip(%s)", recv);
+                else if (strcmp(method, "chomp") == 0)
+                    r = sfmt("sp_str_chomp(%s)", recv);
+                else if (strcmp(method, "capitalize") == 0)
+                    r = sfmt("sp_str_capitalize(%s)", recv);
+                else if (strcmp(method, "reverse") == 0)
+                    r = sfmt("sp_str_reverse(%s)", recv);
+                else if (strcmp(method, "count") == 0 && call->arguments &&
+                         call->arguments->arguments.size == 1) {
+                    char *arg = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                    r = sfmt("sp_str_count(%s, %s)", recv, arg);
+                    free(arg);
+                }
+                else if (strcmp(method, "start_with?") == 0 && call->arguments &&
+                         call->arguments->arguments.size == 1) {
+                    char *arg = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                    r = sfmt("sp_str_starts_with(%s, %s)", recv, arg);
+                    free(arg);
+                }
+                else if (strcmp(method, "end_with?") == 0 && call->arguments &&
+                         call->arguments->arguments.size == 1) {
+                    char *arg = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                    r = sfmt("sp_str_ends_with(%s, %s)", recv, arg);
+                    free(arg);
+                }
+                else if (strcmp(method, "gsub") == 0 && call->arguments &&
+                         call->arguments->arguments.size == 2) {
+                    char *from = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                    char *to = codegen_expr(ctx, call->arguments->arguments.nodes[1]);
+                    r = sfmt("sp_str_gsub(%s, %s, %s)", recv, from, to);
+                    free(from); free(to);
+                }
+                else if (strcmp(method, "sub") == 0 && call->arguments &&
+                         call->arguments->arguments.size == 2) {
+                    char *from = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                    char *to = codegen_expr(ctx, call->arguments->arguments.nodes[1]);
+                    r = sfmt("sp_str_sub(%s, %s, %s)", recv, from, to);
+                    free(from); free(to);
+                }
+                else if (strcmp(method, "split") == 0 && call->arguments &&
+                         call->arguments->arguments.size == 1) {
+                    char *arg = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                    r = sfmt("sp_str_split(%s, %s)", recv, arg);
+                    free(arg);
+                }
+                if (r) {
+                    free(recv); free(method);
+                    return r;
+                }
+                free(recv);
+            }
+
+            /* String array method calls */
+            if (recv_t.kind == SPINEL_TYPE_STR_ARRAY) {
+                char *recv = codegen_expr(ctx, call->receiver);
+                char *r = NULL;
+                if (strcmp(method, "length") == 0 || strcmp(method, "size") == 0)
+                    r = sfmt("sp_StrArray_length(%s)", recv);
                 if (r) {
                     free(recv); free(method);
                     return r;
@@ -4886,6 +5011,71 @@ static void emit_header(codegen_ctx_t *ctx) {
     emit_raw(ctx, "static const char *sp_int_to_s(mrb_int n) {\n");
     emit_raw(ctx, "    char *r = (char *)malloc(24); snprintf(r, 24, \"%%lld\", (long long)n); return r;\n}\n\n");
 
+    /* ---- Additional string helpers ---- */
+    emit_raw(ctx, "static const char *sp_str_strip(const char *s) {\n");
+    emit_raw(ctx, "    while (*s && isspace((unsigned char)*s)) s++;\n");
+    emit_raw(ctx, "    size_t n = strlen(s);\n");
+    emit_raw(ctx, "    while (n > 0 && isspace((unsigned char)s[n-1])) n--;\n");
+    emit_raw(ctx, "    char *r = (char *)malloc(n + 1);\n");
+    emit_raw(ctx, "    memcpy(r, s, n); r[n] = '\\0'; return r;\n}\n");
+
+    emit_raw(ctx, "static const char *sp_str_chomp(const char *s) {\n");
+    emit_raw(ctx, "    size_t n = strlen(s);\n");
+    emit_raw(ctx, "    if (n > 0 && s[n-1] == '\\n') { if (n > 1 && s[n-2] == '\\r') n--; n--; }\n");
+    emit_raw(ctx, "    char *r = (char *)malloc(n + 1);\n");
+    emit_raw(ctx, "    memcpy(r, s, n); r[n] = '\\0'; return r;\n}\n");
+
+    emit_raw(ctx, "static const char *sp_str_capitalize(const char *s) {\n");
+    emit_raw(ctx, "    size_t n = strlen(s); char *r = (char *)malloc(n + 1);\n");
+    emit_raw(ctx, "    for (size_t i = 0; i <= n; i++) r[i] = (i == 0) ? toupper((unsigned char)s[i]) : tolower((unsigned char)s[i]);\n");
+    emit_raw(ctx, "    return r;\n}\n");
+
+    emit_raw(ctx, "static const char *sp_str_reverse(const char *s) {\n");
+    emit_raw(ctx, "    size_t n = strlen(s); char *r = (char *)malloc(n + 1);\n");
+    emit_raw(ctx, "    for (size_t i = 0; i < n; i++) r[i] = s[n - 1 - i];\n");
+    emit_raw(ctx, "    r[n] = '\\0'; return r;\n}\n");
+
+    emit_raw(ctx, "static mrb_int sp_str_count(const char *s, const char *chars) {\n");
+    emit_raw(ctx, "    mrb_int c = 0;\n");
+    emit_raw(ctx, "    for (; *s; s++) { for (const char *p = chars; *p; p++) { if (*s == *p) { c++; break; } } }\n");
+    emit_raw(ctx, "    return c;\n}\n");
+
+    emit_raw(ctx, "static mrb_bool sp_str_starts_with(const char *s, const char *prefix) {\n");
+    emit_raw(ctx, "    size_t pn = strlen(prefix);\n");
+    emit_raw(ctx, "    return strncmp(s, prefix, pn) == 0;\n}\n");
+
+    emit_raw(ctx, "static mrb_bool sp_str_ends_with(const char *s, const char *suffix) {\n");
+    emit_raw(ctx, "    size_t sn = strlen(s), xn = strlen(suffix);\n");
+    emit_raw(ctx, "    return sn >= xn && strcmp(s + sn - xn, suffix) == 0;\n}\n");
+
+    emit_raw(ctx, "static const char *sp_str_gsub(const char *s, const char *from, const char *to) {\n");
+    emit_raw(ctx, "    size_t fl = strlen(from), tl = strlen(to);\n");
+    emit_raw(ctx, "    size_t cap = strlen(s) * 2 + 16; char *r = (char *)malloc(cap); size_t ri = 0;\n");
+    emit_raw(ctx, "    while (*s) {\n");
+    emit_raw(ctx, "        if (strncmp(s, from, fl) == 0) {\n");
+    emit_raw(ctx, "            if (ri + tl >= cap) { cap = (ri + tl) * 2; r = (char *)realloc(r, cap); }\n");
+    emit_raw(ctx, "            memcpy(r + ri, to, tl); ri += tl; s += fl;\n");
+    emit_raw(ctx, "        } else {\n");
+    emit_raw(ctx, "            if (ri + 1 >= cap) { cap *= 2; r = (char *)realloc(r, cap); }\n");
+    emit_raw(ctx, "            r[ri++] = *s++;\n");
+    emit_raw(ctx, "        }\n");
+    emit_raw(ctx, "    }\n");
+    emit_raw(ctx, "    r[ri] = '\\0'; return r;\n}\n");
+
+    emit_raw(ctx, "static const char *sp_str_sub(const char *s, const char *from, const char *to) {\n");
+    emit_raw(ctx, "    const char *p = strstr(s, from);\n");
+    emit_raw(ctx, "    if (!p) { size_t n = strlen(s); char *r = (char *)malloc(n+1); memcpy(r,s,n+1); return r; }\n");
+    emit_raw(ctx, "    size_t fl = strlen(from), tl = strlen(to), sn = strlen(s);\n");
+    emit_raw(ctx, "    char *r = (char *)malloc(sn - fl + tl + 1);\n");
+    emit_raw(ctx, "    size_t before = p - s;\n");
+    emit_raw(ctx, "    memcpy(r, s, before); memcpy(r + before, to, tl);\n");
+    emit_raw(ctx, "    memcpy(r + before + tl, p + fl, sn - before - fl + 1); return r;\n}\n");
+
+    emit_raw(ctx, "static const char *sp_str_repeat(const char *s, mrb_int n) {\n");
+    emit_raw(ctx, "    size_t sl = strlen(s); char *r = (char *)malloc(sl * n + 1);\n");
+    emit_raw(ctx, "    for (mrb_int i = 0; i < n; i++) memcpy(r + sl * i, s, sl);\n");
+    emit_raw(ctx, "    r[sl * n] = '\\0'; return r;\n}\n\n");
+
     /* ---- GC runtime (only when needed) ---- */
     if (ctx->needs_gc) {
         emit_raw(ctx, "/* ---- Mark-and-sweep GC runtime ---- */\n");
@@ -5049,6 +5239,34 @@ static void emit_header(codegen_ctx_t *ctx) {
 
     emit_raw(ctx, "static void sp_IntArray_free(sp_IntArray *a) {\n");
     emit_raw(ctx, "    if (a) { free(a->data); free(a); }\n}\n\n");
+
+    /* Built-in sp_StrArray for string split support (only when needed) */
+    if (ctx->needs_str_split && !ctx->lambda_mode) {
+        emit_raw(ctx, "/* ---- Built-in string array ---- */\n");
+        emit_raw(ctx, "typedef struct { const char **data; mrb_int len; mrb_int cap; } sp_StrArray;\n\n");
+        emit_raw(ctx, "static sp_StrArray *sp_StrArray_new(void) {\n");
+        emit_raw(ctx, "    sp_StrArray *a = (sp_StrArray *)calloc(1, sizeof(sp_StrArray));\n");
+        emit_raw(ctx, "    a->cap = 16; a->data = (const char **)malloc(sizeof(const char *) * a->cap);\n");
+        emit_raw(ctx, "    return a;\n}\n\n");
+        emit_raw(ctx, "static void sp_StrArray_push(sp_StrArray *a, const char *s) {\n");
+        emit_raw(ctx, "    if (a->len >= a->cap) { a->cap *= 2; a->data = (const char **)realloc(a->data, sizeof(const char *) * a->cap); }\n");
+        emit_raw(ctx, "    a->data[a->len++] = s;\n}\n\n");
+        emit_raw(ctx, "static mrb_int sp_StrArray_length(sp_StrArray *a) {\n");
+        emit_raw(ctx, "    return a->len;\n}\n\n");
+    }
+
+    /* sp_str_split depends on sp_StrArray being defined */
+    if (ctx->needs_str_split) {
+        emit_raw(ctx, "static sp_StrArray *sp_str_split(const char *s, const char *delim) {\n");
+        emit_raw(ctx, "    sp_StrArray *a = sp_StrArray_new();\n");
+        emit_raw(ctx, "    size_t dl = strlen(delim);\n");
+        emit_raw(ctx, "    while (*s) {\n");
+        emit_raw(ctx, "        const char *p = strstr(s, delim);\n");
+        emit_raw(ctx, "        if (!p) { size_t n = strlen(s); char *t = (char *)malloc(n+1); memcpy(t,s,n+1); sp_StrArray_push(a, t); break; }\n");
+        emit_raw(ctx, "        size_t n = p - s; char *t = (char *)malloc(n+1); memcpy(t,s,n); t[n]='\\0'; sp_StrArray_push(a, t); s = p + dl;\n");
+        emit_raw(ctx, "    }\n");
+        emit_raw(ctx, "    return a;\n}\n\n");
+    }
 
     /* Built-in sp_StrIntHash for Hash support (only when hashes are used) */
     if (ctx->needs_hash) {
@@ -5368,6 +5586,53 @@ static bool has_exception_nodes(codegen_ctx_t *ctx, pm_node_t *node) {
     case PM_WHILE_NODE: {
         pm_while_node_t *n = (pm_while_node_t *)node;
         return n->statements ? has_exception_nodes(ctx, (pm_node_t *)n->statements) : false;
+    }
+    default:
+        return false;
+    }
+}
+
+/* Check if AST contains any string split calls */
+static bool has_split_calls(codegen_ctx_t *ctx, pm_node_t *node) {
+    if (!node) return false;
+    switch (PM_NODE_TYPE(node)) {
+    case PM_PROGRAM_NODE: {
+        pm_program_node_t *p = (pm_program_node_t *)node;
+        return p->statements ? has_split_calls(ctx, (pm_node_t *)p->statements) : false;
+    }
+    case PM_STATEMENTS_NODE: {
+        pm_statements_node_t *s = (pm_statements_node_t *)node;
+        for (size_t i = 0; i < s->body.size; i++)
+            if (has_split_calls(ctx, s->body.nodes[i])) return true;
+        return false;
+    }
+    case PM_LOCAL_VARIABLE_WRITE_NODE: {
+        pm_local_variable_write_node_t *n = (pm_local_variable_write_node_t *)node;
+        return has_split_calls(ctx, n->value);
+    }
+    case PM_CALL_NODE: {
+        pm_call_node_t *c = (pm_call_node_t *)node;
+        if (ceq(ctx, c->name, "split")) return true;
+        if (c->receiver && has_split_calls(ctx, c->receiver)) return true;
+        if (c->arguments) {
+            for (size_t i = 0; i < c->arguments->arguments.size; i++)
+                if (has_split_calls(ctx, c->arguments->arguments.nodes[i])) return true;
+        }
+        return false;
+    }
+    case PM_IF_NODE: {
+        pm_if_node_t *n = (pm_if_node_t *)node;
+        if (n->statements && has_split_calls(ctx, (pm_node_t *)n->statements)) return true;
+        if (n->subsequent && has_split_calls(ctx, (pm_node_t *)n->subsequent)) return true;
+        return false;
+    }
+    case PM_WHILE_NODE: {
+        pm_while_node_t *n = (pm_while_node_t *)node;
+        return n->statements ? has_split_calls(ctx, (pm_node_t *)n->statements) : false;
+    }
+    case PM_DEF_NODE: {
+        pm_def_node_t *d = (pm_def_node_t *)node;
+        return d->body ? has_split_calls(ctx, (pm_node_t *)d->body) : false;
     }
     default:
         return false;
@@ -5742,6 +6007,9 @@ void codegen_program(codegen_ctx_t *ctx, pm_node_t *root) {
 
     /* Detect exception handling mode */
     ctx->needs_exc = has_exception_nodes(ctx, root);
+
+    /* Detect string split usage */
+    ctx->needs_str_split = has_split_calls(ctx, root);
 
     /* Pass 1: Analyze classes, modules, functions */
     class_analysis_pass(ctx, root);

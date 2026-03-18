@@ -26,6 +26,7 @@ typedef enum {
     SPINEL_TYPE_HASH,    /* sp_StrIntHash * (string→integer hash table) */
     SPINEL_TYPE_PROC,    /* sp_Val * (lambda/closure) */
     SPINEL_TYPE_VALUE,   /* boxed mrb_value (fallback) */
+    SPINEL_TYPE_STR_ARRAY, /* sp_StrArray * (string array from split) */
 } spinel_type_t;
 
 /* Extended type: kind + optional class name for OBJECT types */
@@ -169,6 +170,9 @@ typedef struct {
 
     /* Hash: true when any sp_StrIntHash is used */
     bool needs_hash;
+
+    /* String split: true when sp_StrArray is needed outside lambda mode */
+    bool needs_str_split;
 
     /* GC: true when any non-value-type class or sp_IntArray is used */
     bool needs_gc;
