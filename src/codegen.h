@@ -31,6 +31,7 @@ typedef enum {
     SPINEL_TYPE_REGEXP,    /* compiled regex pattern (regex_t *) */
     SPINEL_TYPE_RANGE,     /* sp_Range (integer range: first..last) */
     SPINEL_TYPE_TIME,      /* sp_Time (wraps time_t) */
+    SPINEL_TYPE_RB_ARRAY,  /* sp_RbArray * (heterogeneous array of sp_RbValue) */
 } spinel_type_t;
 
 /* Extended type: kind + optional class name for OBJECT types */
@@ -86,6 +87,7 @@ typedef struct {
     pm_node_t *class_node; /* AST node of the class definition */
     char includes[MAX_INCLUDES][64]; /* included module names */
     int include_count;
+    int class_tag;             /* unique tag for POLY dispatch (SP_T_CLASS_BASE + N) */
 } class_info_t;
 
 /* Module constant info */
@@ -195,6 +197,19 @@ typedef struct {
 
     /* Poly: true when sp_RbValue (polymorphic tagged union) is used */
     bool needs_poly;
+
+    /* RbArray: true when sp_RbArray (heterogeneous array) is used */
+    bool needs_rb_array;
+
+    /* Poly class set: track which classes a POLY func param can hold */
+    #define MAX_POLY_CLASSES 8
+    struct {
+        char func_name[64];
+        int param_idx;
+        char class_names[MAX_POLY_CLASSES][64];
+        int class_count;
+    } poly_class_sets[MAX_FUNCS];
+    int poly_class_set_count;
 
     /* Proc: true when sp_Proc (block param / proc {} / Proc.new) is used */
     bool needs_proc;

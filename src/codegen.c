@@ -109,22 +109,40 @@ static bool vt_is_numeric(vtype_t t) {
 static bool vt_is_poly_eligible(vtype_t t) {
     return t.kind == SPINEL_TYPE_INTEGER || t.kind == SPINEL_TYPE_FLOAT ||
            t.kind == SPINEL_TYPE_STRING || t.kind == SPINEL_TYPE_BOOLEAN ||
-           t.kind == SPINEL_TYPE_NIL;
+           t.kind == SPINEL_TYPE_NIL || t.kind == SPINEL_TYPE_OBJECT;
 }
+
+/* Forward declaration for find_class */
+static class_info_t *find_class(codegen_ctx_t *ctx, const char *name);
 
 /* Wrap an expression in a boxing call when assigning/passing to a POLY slot.
  * Returns a newly-allocated string like "sp_box_int(42)".
- * If the source type is already POLY, returns a copy of expr unchanged. */
-static char *poly_box_expr(spinel_type_t src_kind, const char *expr) {
-    switch (src_kind) {
+ * If the source type is already POLY, returns a copy of expr unchanged.
+ * The ctx-aware version handles OBJECT types with per-class tags. */
+static char *poly_box_expr_vt(codegen_ctx_t *ctx, vtype_t src, const char *expr) {
+    switch (src.kind) {
     case SPINEL_TYPE_INTEGER: return sfmt("sp_box_int(%s)", expr);
     case SPINEL_TYPE_FLOAT:   return sfmt("sp_box_float(%s)", expr);
     case SPINEL_TYPE_STRING:  return sfmt("sp_box_str(%s)", expr);
     case SPINEL_TYPE_BOOLEAN: return sfmt("sp_box_bool(%s)", expr);
     case SPINEL_TYPE_NIL:     return xstrdup("sp_box_nil()");
     case SPINEL_TYPE_POLY:    return xstrdup(expr);
+    case SPINEL_TYPE_OBJECT: {
+        if (ctx) {
+            class_info_t *cls = find_class(ctx, src.klass);
+            if (cls)
+                return sfmt("sp_box_obj(SP_TAG_%s, %s)", cls->name, expr);
+        }
+        return sfmt("sp_box_obj(SP_T_OBJECT, %s)", expr);
+    }
     default:                  return sfmt("sp_box_int((int64_t)%s)", expr); /* best-effort */
     }
+}
+
+/* Convenience wrapper for callers that only have a kind (non-OBJECT) */
+static char *poly_box_expr(spinel_type_t src_kind, const char *expr) {
+    vtype_t vt; vt.kind = src_kind; vt.klass[0] = '\0';
+    return poly_box_expr_vt(NULL, vt, expr);
 }
 
 const char *spinel_type_cname(spinel_type_t k) {
@@ -140,6 +158,7 @@ const char *spinel_type_cname(spinel_type_t k) {
     case SPINEL_TYPE_STR_ARRAY: return "sp_StrArray *";
     case SPINEL_TYPE_RANGE:   return "sp_Range";
     case SPINEL_TYPE_TIME:    return "sp_Time";
+    case SPINEL_TYPE_RB_ARRAY: return "sp_RbArray *";
     default:                  return "mrb_int"; /* fallback for standalone mode */
     }
 }
@@ -203,6 +222,46 @@ static func_info_t *find_func(codegen_ctx_t *ctx, const char *name) {
     return NULL;
 }
 
+/* Track which classes a POLY function parameter can hold (for bimorphic dispatch) */
+static void poly_class_add(codegen_ctx_t *ctx, const char *func_name,
+                            int param_idx, const char *class_name) {
+    /* Find existing entry */
+    for (int i = 0; i < ctx->poly_class_set_count; i++) {
+        if (strcmp(ctx->poly_class_sets[i].func_name, func_name) == 0 &&
+            ctx->poly_class_sets[i].param_idx == param_idx) {
+            /* Check if class already tracked */
+            for (int j = 0; j < ctx->poly_class_sets[i].class_count; j++)
+                if (strcmp(ctx->poly_class_sets[i].class_names[j], class_name) == 0) return;
+            if (ctx->poly_class_sets[i].class_count < MAX_POLY_CLASSES)
+                snprintf(ctx->poly_class_sets[i].class_names[ctx->poly_class_sets[i].class_count++],
+                         64, "%s", class_name);
+            return;
+        }
+    }
+    /* Create new entry */
+    if (ctx->poly_class_set_count < MAX_FUNCS) {
+        int idx = ctx->poly_class_set_count++;
+        snprintf(ctx->poly_class_sets[idx].func_name, 64, "%s", func_name);
+        ctx->poly_class_sets[idx].param_idx = param_idx;
+        ctx->poly_class_sets[idx].class_count = 1;
+        snprintf(ctx->poly_class_sets[idx].class_names[0], 64, "%s", class_name);
+    }
+}
+
+/* Look up the poly class set for a function parameter */
+static int poly_class_get(codegen_ctx_t *ctx, const char *func_name,
+                           int param_idx, char classes[][64]) {
+    for (int i = 0; i < ctx->poly_class_set_count; i++) {
+        if (strcmp(ctx->poly_class_sets[i].func_name, func_name) == 0 &&
+            ctx->poly_class_sets[i].param_idx == param_idx) {
+            for (int j = 0; j < ctx->poly_class_sets[i].class_count; j++)
+                snprintf(classes[j], 64, "%s", ctx->poly_class_sets[i].class_names[j]);
+            return ctx->poly_class_sets[i].class_count;
+        }
+    }
+    return 0;
+}
+
 /* ------------------------------------------------------------------ */
 /* Variable table                                                     */
 /* ------------------------------------------------------------------ */
@@ -223,6 +282,9 @@ static var_entry_t *var_declare(codegen_ctx_t *ctx, const char *name,
                 v->type = vt_prim(SPINEL_TYPE_FLOAT);
             else if (type.kind == SPINEL_TYPE_OBJECT && v->type.kind == SPINEL_TYPE_OBJECT
                      && strcmp(v->type.klass, type.klass) == 0) { /* same class */ }
+            else if (type.kind == SPINEL_TYPE_OBJECT && v->type.kind == SPINEL_TYPE_OBJECT
+                     && strcmp(v->type.klass, type.klass) != 0)
+                v->type = vt_prim(SPINEL_TYPE_POLY); /* different classes → POLY */
             else if (v->type.kind == SPINEL_TYPE_VALUE && type.kind != SPINEL_TYPE_VALUE
                      && type.kind != SPINEL_TYPE_UNKNOWN)
                 v->type = type;  /* Narrow from VALUE to a more specific type */
@@ -1168,6 +1230,12 @@ static vtype_t infer_type(codegen_ctx_t *ctx, pm_node_t *node) {
                 if (strcmp(method, "each") == 0) { free(method); return vt_prim(SPINEL_TYPE_ARRAY); }
                 if (strcmp(method, "join") == 0) { free(method); return vt_prim(SPINEL_TYPE_STRING); }
             }
+            /* sp_RbArray methods */
+            if (recv_t.kind == SPINEL_TYPE_RB_ARRAY) {
+                if (strcmp(method, "length") == 0 || strcmp(method, "size") == 0) { free(method); return vt_prim(SPINEL_TYPE_INTEGER); }
+                if (strcmp(method, "[]") == 0) { free(method); return vt_prim(SPINEL_TYPE_POLY); }
+                if (strcmp(method, "each") == 0) { free(method); return vt_prim(SPINEL_TYPE_RB_ARRAY); }
+            }
             /* Hash methods on HASH-typed receiver */
             if (recv_t.kind == SPINEL_TYPE_HASH) {
                 if (strcmp(method, "[]") == 0) { free(method); return vt_prim(SPINEL_TYPE_INTEGER); }
@@ -1326,6 +1394,28 @@ static vtype_t infer_type(codegen_ctx_t *ctx, pm_node_t *node) {
                     }
                 }
             }
+            /* POLY receiver: check known class set for return type */
+            if (recv_t.kind == SPINEL_TYPE_POLY &&
+                PM_NODE_TYPE(call->receiver) == PM_LOCAL_VARIABLE_READ_NODE) {
+                pm_local_variable_read_node_t *lv = (pm_local_variable_read_node_t *)call->receiver;
+                char *vname = cstr(ctx, lv->name);
+                func_info_t *cur_func = find_func(ctx, ctx->current_func_name);
+                if (cur_func) {
+                    for (int pi = 0; pi < cur_func->param_count; pi++) {
+                        if (strcmp(cur_func->params[pi].name, vname) != 0) continue;
+                        char classes[MAX_POLY_CLASSES][64];
+                        int nclasses = poly_class_get(ctx, cur_func->name, pi, classes);
+                        if (nclasses >= 1) {
+                            class_info_t *cls0 = find_class(ctx, classes[0]);
+                            if (cls0) {
+                                method_info_t *m0 = find_method_inherited(ctx, cls0, method, NULL);
+                                if (m0) { free(vname); free(method); return m0->return_type; }
+                            }
+                        }
+                    }
+                }
+                free(vname);
+            }
         }
 
         /* Receiver-less call in class context → implicit self method (with inheritance) */
@@ -1466,7 +1556,10 @@ static vtype_t infer_type(codegen_ctx_t *ctx, pm_node_t *node) {
     }
 
     case PM_ARRAY_NODE:
-        return vt_prim(SPINEL_TYPE_ARRAY);
+        /* Array literals are sp_RbArray (heterogeneous) unless in lambda mode */
+        if (ctx->lambda_mode)
+            return vt_prim(SPINEL_TYPE_ARRAY);
+        return vt_prim(SPINEL_TYPE_RB_ARRAY);
 
     case PM_HASH_NODE:
         return vt_prim(SPINEL_TYPE_HASH);
@@ -2141,6 +2234,17 @@ static void resolve_class_types(codegen_ctx_t *ctx, pm_node_t *prog_root) {
                                         if (target->params[pi].type.kind == SPINEL_TYPE_VALUE) {
                                             if (at.kind != SPINEL_TYPE_VALUE)
                                                 target->params[pi].type = at;
+                                        } else if (at.kind == SPINEL_TYPE_OBJECT &&
+                                                   target->params[pi].type.kind == SPINEL_TYPE_OBJECT &&
+                                                   strcmp(target->params[pi].type.klass, at.klass) != 0) {
+                                            /* Different OBJECT classes → POLY with class tracking */
+                                            poly_class_add(ctx, target->name, pi, target->params[pi].type.klass);
+                                            poly_class_add(ctx, target->name, pi, at.klass);
+                                            target->params[pi].type = vt_prim(SPINEL_TYPE_POLY);
+                                        } else if (at.kind == SPINEL_TYPE_OBJECT &&
+                                                   target->params[pi].type.kind == SPINEL_TYPE_POLY) {
+                                            /* Already POLY, just track this class */
+                                            poly_class_add(ctx, target->name, pi, at.klass);
                                         } else if (at.kind != SPINEL_TYPE_VALUE &&
                                                    at.kind != target->params[pi].type.kind &&
                                                    target->params[pi].type.kind != SPINEL_TYPE_POLY) {
@@ -2172,6 +2276,15 @@ static void resolve_class_types(codegen_ctx_t *ctx, pm_node_t *prog_root) {
                                                 if (target2->params[pi].type.kind == SPINEL_TYPE_VALUE) {
                                                     if (at.kind != SPINEL_TYPE_VALUE)
                                                         target2->params[pi].type = at;
+                                                } else if (at.kind == SPINEL_TYPE_OBJECT &&
+                                                           target2->params[pi].type.kind == SPINEL_TYPE_OBJECT &&
+                                                           strcmp(target2->params[pi].type.klass, at.klass) != 0) {
+                                                    poly_class_add(ctx, target2->name, pi, target2->params[pi].type.klass);
+                                                    poly_class_add(ctx, target2->name, pi, at.klass);
+                                                    target2->params[pi].type = vt_prim(SPINEL_TYPE_POLY);
+                                                } else if (at.kind == SPINEL_TYPE_OBJECT &&
+                                                           target2->params[pi].type.kind == SPINEL_TYPE_POLY) {
+                                                    poly_class_add(ctx, target2->name, pi, at.klass);
                                                 } else if (at.kind != SPINEL_TYPE_VALUE &&
                                                            at.kind != target2->params[pi].type.kind &&
                                                            target2->params[pi].type.kind != SPINEL_TYPE_POLY) {
@@ -2266,6 +2379,15 @@ static void resolve_class_types(codegen_ctx_t *ctx, pm_node_t *prog_root) {
                                 if (target->params[pi].type.kind == SPINEL_TYPE_VALUE) {
                                     if (at.kind != SPINEL_TYPE_VALUE)
                                         target->params[pi].type = at;
+                                } else if (at.kind == SPINEL_TYPE_OBJECT &&
+                                           target->params[pi].type.kind == SPINEL_TYPE_OBJECT &&
+                                           strcmp(target->params[pi].type.klass, at.klass) != 0) {
+                                    poly_class_add(ctx, target->name, pi, target->params[pi].type.klass);
+                                    poly_class_add(ctx, target->name, pi, at.klass);
+                                    target->params[pi].type = vt_prim(SPINEL_TYPE_POLY);
+                                } else if (at.kind == SPINEL_TYPE_OBJECT &&
+                                           target->params[pi].type.kind == SPINEL_TYPE_POLY) {
+                                    poly_class_add(ctx, target->name, pi, at.klass);
                                 } else if (at.kind != SPINEL_TYPE_VALUE &&
                                            at.kind != target->params[pi].type.kind &&
                                            target->params[pi].type.kind != SPINEL_TYPE_POLY) {
@@ -2653,7 +2775,25 @@ static void emit_constructor(codegen_ctx_t *ctx, class_info_t *cls) {
         }
         return;
     }
-    if (!init) return;
+    if (!init) {
+        /* No initialize method: generate a default constructor */
+        if (cls->is_value_type) {
+            emit_raw(ctx, "static sp_%s sp_%s_new(void) {\n", cls->name, cls->name);
+            emit_raw(ctx, "    sp_%s self = {0};\n", cls->name);
+            emit_raw(ctx, "    return self;\n}\n\n");
+        } else {
+            emit_raw(ctx, "static sp_%s *sp_%s_new(void) {\n", cls->name, cls->name);
+            if (ctx->needs_gc) {
+                emit_raw(ctx, "    sp_%s *self = (sp_%s *)sp_gc_alloc(sizeof(sp_%s), NULL, NULL);\n",
+                         cls->name, cls->name, cls->name);
+            } else {
+                emit_raw(ctx, "    sp_%s *self = (sp_%s *)calloc(1, sizeof(sp_%s));\n",
+                         cls->name, cls->name, cls->name);
+            }
+            emit_raw(ctx, "    return self;\n}\n\n");
+        }
+        return;
+    }
 
     if (cls->is_value_type) {
         emit_raw(ctx, "static sp_%s sp_%s_new(", cls->name, cls->name);
@@ -3878,6 +4018,25 @@ static char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node) {
                 free(recv);
             }
 
+            /* sp_RbArray method calls */
+            if (recv_t.kind == SPINEL_TYPE_RB_ARRAY) {
+                char *recv = codegen_expr(ctx, call->receiver);
+                char *r = NULL;
+                if (strcmp(method, "length") == 0 || strcmp(method, "size") == 0)
+                    r = sfmt("sp_RbArray_length(%s)", recv);
+                else if (strcmp(method, "[]") == 0 && call->arguments &&
+                         call->arguments->arguments.size == 1) {
+                    char *idx = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                    r = sfmt("sp_RbArray_get(%s, %s)", recv, idx);
+                    free(idx);
+                }
+                if (r) {
+                    free(recv); free(method);
+                    return r;
+                }
+                free(recv);
+            }
+
             /* sp_StrIntHash method calls */
             if (recv_t.kind == SPINEL_TYPE_HASH) {
                 char *recv = codegen_expr(ctx, call->receiver);
@@ -4267,6 +4426,81 @@ static char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node) {
                 }
             }
 
+            /* Bimorphic dispatch: method call on POLY receiver with known class set */
+            if (recv_t.kind == SPINEL_TYPE_POLY && call->receiver &&
+                PM_NODE_TYPE(call->receiver) == PM_LOCAL_VARIABLE_READ_NODE) {
+                pm_local_variable_read_node_t *lv = (pm_local_variable_read_node_t *)call->receiver;
+                char *vname = cstr(ctx, lv->name);
+                /* Find which function param this is */
+                func_info_t *cur_func = find_func(ctx, ctx->current_func_name);
+                if (cur_func) {
+                    for (int pi = 0; pi < cur_func->param_count; pi++) {
+                        if (strcmp(cur_func->params[pi].name, vname) != 0) continue;
+                        char classes[MAX_POLY_CLASSES][64];
+                        int nclasses = poly_class_get(ctx, cur_func->name, pi, classes);
+                        if (nclasses >= 2) {
+                            char *recv = codegen_expr(ctx, call->receiver);
+                            const char *c_mname = sanitize_method(method);
+                            int argc = call->arguments ? (int)call->arguments->arguments.size : 0;
+                            char *args = xstrdup("");
+                            for (int i = 0; i < argc; i++) {
+                                char *a = codegen_expr(ctx, call->arguments->arguments.nodes[i]);
+                                char *na = sfmt("%s, %s", args, a);
+                                free(args); free(a);
+                                args = na;
+                            }
+                            /* Determine return type from first class's method */
+                            class_info_t *cls0 = find_class(ctx, classes[0]);
+                            method_info_t *m0 = cls0 ? find_method_inherited(ctx, cls0, method, NULL) : NULL;
+                            bool returns_string = m0 && m0->return_type.kind == SPINEL_TYPE_STRING;
+
+                            /* Generate bimorphic inline if/else as expression via ternary */
+                            /* For simplicity, use a temp var */
+                            int tmp = ctx->temp_counter++;
+                            if (returns_string) {
+                                emit(ctx, "const char *_poly_%d;\n", tmp);
+                                for (int ci = 0; ci < nclasses; ci++) {
+                                    class_info_t *cls = find_class(ctx, classes[ci]);
+                                    if (!cls) continue;
+                                    const char *cond = ci == 0 ? "if" : "else if";
+                                    emit(ctx, "%s (%s.tag == SP_TAG_%s) _poly_%d = sp_%s_%s((sp_%s *)%s.p%s);\n",
+                                         cond, recv, classes[ci], tmp,
+                                         classes[ci], c_mname, classes[ci], recv, args);
+                                }
+                                emit(ctx, "else _poly_%d = \"\";\n", tmp);
+                            } else {
+                                /* Generic: box result as sp_RbValue */
+                                emit(ctx, "sp_RbValue _poly_%d = sp_box_nil();\n", tmp);
+                                for (int ci = 0; ci < nclasses; ci++) {
+                                    class_info_t *cls = find_class(ctx, classes[ci]);
+                                    if (!cls) continue;
+                                    method_info_t *mi = find_method_inherited(ctx, cls, method, NULL);
+                                    const char *cond = ci == 0 ? "if" : "else if";
+                                    emit(ctx, "%s (%s.tag == SP_TAG_%s) {\n", cond, recv, classes[ci]);
+                                    char *call_expr = sfmt("sp_%s_%s((sp_%s *)%s.p%s)",
+                                                           classes[ci], c_mname, classes[ci], recv, args);
+                                    if (mi) {
+                                        char *boxed = poly_box_expr_vt(ctx, mi->return_type, call_expr);
+                                        emit(ctx, "    _poly_%d = %s;\n", tmp, boxed);
+                                        free(boxed);
+                                    } else {
+                                        emit(ctx, "    _poly_%d = sp_box_nil();\n", tmp);
+                                    }
+                                    free(call_expr);
+                                    emit(ctx, "}\n");
+                                }
+                            }
+                            free(recv); free(args); free(vname); free(method);
+                            if (returns_string)
+                                return sfmt("_poly_%d", tmp);
+                            else
+                                return sfmt("_poly_%d", tmp);
+                        }
+                    }
+                }
+                free(vname);
+            }
+
             /* to_f, to_i on Integer/Float */
             if (strcmp(method, "to_f") == 0 && recv_t.kind == SPINEL_TYPE_INTEGER) {
                 char *recv = codegen_expr(ctx, call->receiver);
@@ -4593,7 +4827,7 @@ static char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node) {
                     if (i < fn->param_count && fn->params[i].type.kind == SPINEL_TYPE_POLY) {
                         vtype_t at = infer_type(ctx, call->arguments->arguments.nodes[i]);
                         if (at.kind != SPINEL_TYPE_POLY) {
-                            char *boxed = poly_box_expr(at.kind, a);
+                            char *boxed = poly_box_expr_vt(ctx, at, a);
                             free(a);
                             a = boxed;
                         }
@@ -5053,8 +5287,22 @@ static char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node) {
                 return xstrdup("sp_ValArray_new()");
             }
         }
-        /* Fallthrough for non-lambda mode */
-        return sfmt("0 /* TODO: array expr */");
+        /* sp_RbArray for array literals (heterogeneous) */
+        {
+            ctx->needs_rb_array = true;
+            ctx->needs_poly = true;
+            int tmp = ctx->temp_counter++;
+            emit(ctx, "sp_RbArray *_ary_%d = sp_RbArray_new();\n", tmp);
+            for (size_t i = 0; i < ary->elements.size; i++) {
+                pm_node_t *elem = ary->elements.nodes[i];
+                char *val = codegen_expr(ctx, elem);
+                vtype_t et = infer_type(ctx, elem);
+                char *boxed = poly_box_expr_vt(ctx, et, val);
+                emit(ctx, "sp_RbArray_push(_ary_%d, %s);\n", tmp, boxed);
+                free(val); free(boxed);
+            }
+            return sfmt("_ary_%d", tmp);
+        }
     }
 
     case PM_HASH_NODE:
@@ -5782,6 +6030,62 @@ static void codegen_stmt(codegen_ctx_t *ctx, pm_node_t *node) {
                     ctx->implicit_return = false;
                     codegen_stmts(ctx, (pm_node_t *)blk->body);
                     ctx->implicit_return = saved_ir2;
+                }
+                ctx->indent--;
+                emit(ctx, "}\n");
+                free(recv); free(bpname); free(method);
+                break;
+            }
+
+            /* sp_RbArray#each with block → inline for loop with sp_RbValue elements */
+            if (recv_t.kind == SPINEL_TYPE_RB_ARRAY) {
+                pm_block_node_t *blk = (pm_block_node_t *)call->block;
+                char *recv = codegen_expr(ctx, call->receiver);
+                char *bpname = NULL;
+                if (blk->parameters && PM_NODE_TYPE(blk->parameters) == PM_BLOCK_PARAMETERS_NODE) {
+                    pm_block_parameters_node_t *bp = (pm_block_parameters_node_t *)blk->parameters;
+                    if (bp->parameters && bp->parameters->requireds.size > 0) {
+                        pm_node_t *p = bp->parameters->requireds.nodes[0];
+                        if (PM_NODE_TYPE(p) == PM_REQUIRED_PARAMETER_NODE)
+                            bpname = cstr(ctx, ((pm_required_parameter_node_t *)p)->name);
+                    }
+                }
+                int tmp = ctx->temp_counter++;
+                emit(ctx, "for (mrb_int _ei_%d = 0; _ei_%d < sp_RbArray_length(%s); _ei_%d++) {\n",
+                     tmp, tmp, recv, tmp);
+                ctx->indent++;
+                /* Temporarily override the block param type to POLY */
+                int saved_vc = ctx->var_count;
+                vtype_t saved_type = {0};
+                var_entry_t *existing_v = bpname ? var_lookup(ctx, bpname) : NULL;
+                if (existing_v) {
+                    saved_type = existing_v->type;
+                    existing_v->type = vt_prim(SPINEL_TYPE_POLY);
+                } else if (bpname) {
+                    /* Force-add a new POLY entry at the end */
+                    assert(ctx->var_count < MAX_VARS);
+                    var_entry_t *nv = &ctx->vars[ctx->var_count++];
+                    snprintf(nv->name, sizeof(nv->name), "%s", bpname);
+                    nv->type = vt_prim(SPINEL_TYPE_POLY);
+                    nv->declared = false;
+                    nv->is_constant = false;
+                }
+                if (bpname) {
+                    char *cn = make_cname(bpname, false);
+                    emit(ctx, "sp_RbValue %s = sp_RbArray_get(%s, _ei_%d);\n", cn, recv, tmp);
+                    free(cn);
+                }
+                if (blk->body) {
+                    bool saved_ir2 = ctx->implicit_return;
+                    ctx->implicit_return = false;
+                    codegen_stmts(ctx, (pm_node_t *)blk->body);
+                    ctx->implicit_return = saved_ir2;
+                }
+                /* Restore var table */
+                if (existing_v) {
+                    existing_v->type = saved_type;
+                } else {
+                    ctx->var_count = saved_vc;
                 }
                 ctx->indent--;
                 emit(ctx, "}\n");
@@ -6790,6 +7094,11 @@ static void emit_top_func(codegen_ctx_t *ctx, func_info_t *f) {
                 free(ct); free(cn);
                 continue;
             }
+            if (v->type.kind == SPINEL_TYPE_RB_ARRAY) {
+                emit(ctx, "sp_RbArray *%s = NULL;\n", cn);
+                free(ct); free(cn);
+                continue;
+            }
             if (v->type.kind == SPINEL_TYPE_PROC && !ctx->lambda_mode) {
                 /* Skip if this is the &block param (already a function parameter) */
                 if (f->has_block_param && strcmp(v->name, f->block_param_name) == 0) {
@@ -7080,13 +7389,20 @@ static void emit_header(codegen_ctx_t *ctx) {
 
     /* ---- Polymorphic tagged union (sp_RbValue) ---- */
     if (ctx->needs_poly) {
-        emit_raw(ctx, "enum sp_tag { SP_T_INT, SP_T_FLOAT, SP_T_BOOL, SP_T_NIL, SP_T_STRING, SP_T_OBJECT };\n");
+        /* Emit sp_tag enum with per-class tags */
+        emit_raw(ctx, "enum sp_tag { SP_T_INT, SP_T_FLOAT, SP_T_BOOL, SP_T_NIL, SP_T_STRING, SP_T_OBJECT");
+        /* Add per-class tag values starting at SP_T_CLASS_BASE = 64 */
+        for (int i = 0; i < ctx->class_count; i++) {
+            emit_raw(ctx, ", SP_TAG_%s = %d", ctx->classes[i].name, 64 + i);
+        }
+        emit_raw(ctx, " };\n");
         emit_raw(ctx, "typedef struct { enum sp_tag tag; union { int64_t i; double f; const char *s; void *p; }; } sp_RbValue;\n");
         emit_raw(ctx, "static sp_RbValue sp_box_int(int64_t n) { return (sp_RbValue){SP_T_INT, .i = n}; }\n");
         emit_raw(ctx, "static sp_RbValue sp_box_float(double f) { return (sp_RbValue){SP_T_FLOAT, .f = f}; }\n");
         emit_raw(ctx, "static sp_RbValue sp_box_str(const char *s) { return (sp_RbValue){SP_T_STRING, .s = s}; }\n");
         emit_raw(ctx, "static sp_RbValue sp_box_bool(int b) { return (sp_RbValue){SP_T_BOOL, .i = b}; }\n");
         emit_raw(ctx, "static sp_RbValue sp_box_nil(void) { return (sp_RbValue){SP_T_NIL, .i = 0}; }\n");
+        emit_raw(ctx, "static sp_RbValue sp_box_obj(int tag, void *p) { sp_RbValue v; v.tag = (enum sp_tag)tag; v.p = p; return v; }\n");
         emit_raw(ctx, "static void sp_poly_puts(sp_RbValue v) {\n");
         emit_raw(ctx, "    switch (v.tag) {\n");
         emit_raw(ctx, "        case SP_T_INT: printf(\"%%lld\\n\", (long long)v.i); break;\n");
@@ -7099,6 +7415,23 @@ static void emit_header(codegen_ctx_t *ctx) {
         emit_raw(ctx, "        default: puts(\"(object)\"); break;\n");
         emit_raw(ctx, "    }\n}\n");
         emit_raw(ctx, "static mrb_bool sp_poly_nil_p(sp_RbValue v) { return v.tag == SP_T_NIL; }\n\n");
+    }
+
+    /* ---- Heterogeneous array (sp_RbArray) ---- */
+    if (ctx->needs_rb_array) {
+        emit_raw(ctx, "typedef struct { sp_RbValue *data; mrb_int len; mrb_int cap; } sp_RbArray;\n");
+        emit_raw(ctx, "static sp_RbArray *sp_RbArray_new(void) {\n");
+        emit_raw(ctx, "    sp_RbArray *a = (sp_RbArray *)malloc(sizeof(sp_RbArray));\n");
+        emit_raw(ctx, "    a->cap = 8; a->len = 0;\n");
+        emit_raw(ctx, "    a->data = (sp_RbValue *)malloc(sizeof(sp_RbValue) * a->cap);\n");
+        emit_raw(ctx, "    return a;\n}\n");
+        emit_raw(ctx, "static void sp_RbArray_push(sp_RbArray *a, sp_RbValue v) {\n");
+        emit_raw(ctx, "    if (a->len >= a->cap) { a->cap *= 2; a->data = (sp_RbValue *)realloc(a->data, sizeof(sp_RbValue) * a->cap); }\n");
+        emit_raw(ctx, "    a->data[a->len++] = v;\n}\n");
+        emit_raw(ctx, "static sp_RbValue sp_RbArray_get(sp_RbArray *a, mrb_int idx) {\n");
+        emit_raw(ctx, "    if (idx < 0) idx += a->len;\n");
+        emit_raw(ctx, "    return a->data[idx];\n}\n");
+        emit_raw(ctx, "static mrb_int sp_RbArray_length(sp_RbArray *a) { return a->len; }\n\n");
     }
 
     /* ---- String helpers ---- */
@@ -8590,6 +8923,18 @@ void codegen_program(codegen_ctx_t *ctx, pm_node_t *root) {
             if (f->params[j].type.kind == SPINEL_TYPE_POLY) { ctx->needs_poly = true; break; }
     }
 
+    /* Detect needs_rb_array: any RB_ARRAY-typed variable */
+    for (int i = 0; i < ctx->var_count && !ctx->needs_rb_array; i++) {
+        if (ctx->vars[i].type.kind == SPINEL_TYPE_RB_ARRAY) {
+            ctx->needs_rb_array = true;
+            ctx->needs_poly = true; /* sp_RbArray uses sp_RbValue elements */
+        }
+    }
+
+    /* Assign class_tag to each class (for POLY dispatch) */
+    for (int i = 0; i < ctx->class_count; i++)
+        ctx->classes[i].class_tag = 64 + i; /* SP_T_CLASS_BASE = 64 */
+
     /* Detect needs_hash: any HASH-typed variable triggers hash runtime */
     for (int i = 0; i < ctx->var_count; i++) {
         if (ctx->vars[i].type.kind == SPINEL_TYPE_HASH) {
@@ -8888,6 +9233,8 @@ void codegen_program(codegen_ctx_t *ctx, pm_node_t *root) {
             char *cn = make_cname(v->name, v->is_constant);
             if (v->type.kind == SPINEL_TYPE_POLY) {
                 emit_raw(ctx, "    sp_RbValue %s = sp_box_nil();\n", cn);
+            } else if (v->type.kind == SPINEL_TYPE_RB_ARRAY) {
+                emit_raw(ctx, "    sp_RbArray *%s = NULL;\n", cn);
             } else if (v->type.kind == SPINEL_TYPE_PROC) {
                 emit_raw(ctx, "    sp_Val *%s = NULL;\n", cn);
             } else if (v->type.kind == SPINEL_TYPE_ARRAY) {
@@ -9040,6 +9387,11 @@ void codegen_program(codegen_ctx_t *ctx, pm_node_t *root) {
             }
             else if (v->type.kind == SPINEL_TYPE_POLY) {
                 emit_raw(ctx, "    sp_RbValue %s%s = sp_box_nil();\n", vol, cn);
+                free(ct); free(cn);
+                continue;
+            }
+            else if (v->type.kind == SPINEL_TYPE_RB_ARRAY) {
+                emit_raw(ctx, "    sp_RbArray *%s = NULL;\n", cn);
                 free(ct); free(cn);
                 continue;
             }
