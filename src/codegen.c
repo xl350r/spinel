@@ -1345,7 +1345,12 @@ static vtype_t infer_type(codegen_ctx_t *ctx, pm_node_t *node) {
                     strcmp(method, "reverse") == 0) { free(method); return vt_prim(SPINEL_TYPE_STRING); }
                 if (strcmp(method, "include?") == 0) { free(method); return vt_prim(SPINEL_TYPE_BOOLEAN); }
                 if (strcmp(method, "<<") == 0) { free(method); return vt_prim(SPINEL_TYPE_SP_STRING); }
+                if (strcmp(method, "replace") == 0 || strcmp(method, "clear") == 0) { free(method); return vt_prim(SPINEL_TYPE_SP_STRING); }
                 if (strcmp(method, "to_s") == 0) { free(method); return vt_prim(SPINEL_TYPE_STRING); }
+                if (strcmp(method, "[]") == 0) { free(method); return vt_prim(SPINEL_TYPE_STRING); }
+                if (strcmp(method, "gsub") == 0 || strcmp(method, "sub") == 0) { free(method); return vt_prim(SPINEL_TYPE_STRING); }
+                if (strcmp(method, "split") == 0) { free(method); return vt_prim(SPINEL_TYPE_STR_ARRAY); }
+                if (strcmp(method, "+") == 0) { free(method); return vt_prim(SPINEL_TYPE_STRING); }
             }
             /* Time methods on TIME-typed receiver */
             if (recv_t.kind == SPINEL_TYPE_TIME) {
@@ -1885,8 +1890,8 @@ static void infer_pass(codegen_ctx_t *ctx, pm_node_t *node) {
             for (size_t i = 0; i < call->arguments->arguments.size; i++)
                 infer_pass(ctx, call->arguments->arguments.nodes[i]);
         }
-        /* Detect String << : widen STRING variable to SP_STRING (mutable) */
-        if (call->receiver && ceq(ctx, call->name, "<<") &&
+        /* Detect String << / replace / clear : widen STRING variable to SP_STRING (mutable) */
+        if (call->receiver && (ceq(ctx, call->name, "<<") || ceq(ctx, call->name, "replace") || ceq(ctx, call->name, "clear")) &&
             PM_NODE_TYPE(call->receiver) == PM_LOCAL_VARIABLE_READ_NODE) {
             vtype_t recv_t = infer_type(ctx, call->receiver);
             if (recv_t.kind == SPINEL_TYPE_STRING || recv_t.kind == SPINEL_TYPE_SP_STRING) {
@@ -3689,6 +3694,13 @@ static char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node) {
                 free(recv); free(idx); free(method);
                 return r;
             }
+            if (recv_t_pre.kind == SPINEL_TYPE_SP_STRING) {
+                char *recv = codegen_expr(ctx, call->receiver);
+                char *idx = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                char *r = sfmt("sp_String_char_at(%s, %s)", recv, idx);
+                free(recv); free(idx); free(method);
+                return r;
+            }
         }
 
         /* Array indexing / Proc call: obj[arg] */
@@ -4490,6 +4502,39 @@ static char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node) {
                 }
                 else if (strcmp(method, "to_s") == 0)
                     r = sfmt("sp_String_cstr(%s)", recv);
+                else if (strcmp(method, "[]") == 0 && call->arguments &&
+                         call->arguments->arguments.size == 1) {
+                    char *idx = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                    r = sfmt("sp_String_char_at(%s, %s)", recv, idx);
+                    free(idx);
+                }
+                else if (strcmp(method, "gsub") == 0 && call->arguments &&
+                         call->arguments->arguments.size == 2) {
+                    char *from = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                    char *to = codegen_expr(ctx, call->arguments->arguments.nodes[1]);
+                    r = sfmt("sp_str_gsub(sp_String_cstr(%s), %s, %s)", recv, from, to);
+                    free(from); free(to);
+                }
+                else if (strcmp(method, "split") == 0 && call->arguments &&
+                         call->arguments->arguments.size == 1) {
+                    char *arg = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                    r = sfmt("sp_str_split(sp_String_cstr(%s), %s)", recv, arg);
+                    free(arg);
+                }
+                else if (strcmp(method, "+") == 0 && call->arguments &&
+                         call->arguments->arguments.size == 1) {
+                    char *arg = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                    r = sfmt("sp_str_concat(sp_String_cstr(%s), %s)", recv, arg);
+                    free(arg);
+                }
+                else if (strcmp(method, "replace") == 0 && call->arguments &&
+                         call->arguments->arguments.size == 1) {
+                    char *arg = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                    r = sfmt("(sp_String_replace(%s, %s), %s)", recv, arg, recv);
+                    free(arg);
+                }
+                else if (strcmp(method, "clear") == 0)
+                    r = sfmt("(sp_String_clear(%s), %s)", recv, recv);
                 if (r) {
                     free(recv); free(method);
                     return r;
@@ -7056,6 +7101,31 @@ static void codegen_stmt(codegen_ctx_t *ctx, pm_node_t *node) {
             break;
         }
 
+        /* sp_String replace/clear as statement */
+        if (call->receiver && PM_NODE_TYPE(call->receiver) == PM_LOCAL_VARIABLE_READ_NODE) {
+            vtype_t recv_t = infer_type(ctx, call->receiver);
+            if (recv_t.kind == SPINEL_TYPE_SP_STRING) {
+                if (strcmp(method, "replace") == 0 && call->arguments &&
+                    call->arguments->arguments.size == 1) {
+                    pm_local_variable_read_node_t *lv = (pm_local_variable_read_node_t *)call->receiver;
+                    char *vn = cstr(ctx, lv->name);
+                    char *cn = make_cname(vn, false);
+                    char *arg = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
+                    emit(ctx, "sp_String_replace(%s, %s);\n", cn, arg);
+                    free(vn); free(cn); free(arg); free(method);
+                    break;
+                }
+                if (strcmp(method, "clear") == 0) {
+                    pm_local_variable_read_node_t *lv = (pm_local_variable_read_node_t *)call->receiver;
+                    char *vn = cstr(ctx, lv->name);
+                    char *cn = make_cname(vn, false);
+                    emit(ctx, "sp_String_clear(%s);\n", cn);
+                    free(vn); free(cn); free(method);
+                    break;
+                }
+            }
+        }
+
         /* String << (append) as statement */
         if (call->receiver && strcmp(method, "<<") == 0 &&
             call->arguments && call->arguments->arguments.size == 1) {
@@ -8165,7 +8235,16 @@ static void emit_header(codegen_ctx_t *ctx) {
         emit_raw(ctx, "static const char *sp_String_reverse(sp_String *s) {\n");
         emit_raw(ctx, "    return sp_str_reverse(s->data);\n}\n");
         emit_raw(ctx, "static mrb_bool sp_String_include(sp_String *s, const char *sub) {\n");
-        emit_raw(ctx, "    return strstr(s->data, sub) != NULL;\n}\n\n");
+        emit_raw(ctx, "    return strstr(s->data, sub) != NULL;\n}\n");
+        emit_raw(ctx, "static void sp_String_replace(sp_String *s, const char *t) {\n");
+        emit_raw(ctx, "    size_t tlen = strlen(t);\n");
+        emit_raw(ctx, "    if (tlen >= (size_t)s->cap) { s->cap = tlen + 1; s->data = realloc(s->data, s->cap); }\n");
+        emit_raw(ctx, "    memcpy(s->data, t, tlen + 1); s->len = tlen;\n}\n");
+        emit_raw(ctx, "static void sp_String_clear(sp_String *s) { s->data[0] = '\\0'; s->len = 0; }\n");
+        emit_raw(ctx, "static const char *sp_String_char_at(sp_String *s, int64_t idx) {\n");
+        emit_raw(ctx, "    if (idx < 0) idx += s->len;\n");
+        emit_raw(ctx, "    if (idx < 0 || idx >= s->len) return \"\";\n");
+        emit_raw(ctx, "    char *r = malloc(2); r[0] = s->data[idx]; r[1] = '\\0'; return r;\n}\n\n");
     }
 
     /* ---- Float format (Ruby-style: always show decimal point) ---- */
