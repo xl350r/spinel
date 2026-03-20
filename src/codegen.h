@@ -276,6 +276,90 @@ typedef struct {
 void codegen_init(codegen_ctx_t *ctx, pm_parser_t *parser, FILE *out,
                   const char *source_path);
 void codegen_program(codegen_ctx_t *ctx, pm_node_t *root);
+
+/* --- Capture list (used by expr.c and codegen.c) --- */
+typedef struct {
+    char names[256][64];
+    int count;
+} capture_list_t;
+
+/* --- Shared utility functions (codegen.c) --- */
+char *xstrdup(const char *s);
+char *sfmt(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+char *c_safe_name(const char *name);
+char *cstr(codegen_ctx_t *ctx, pm_constant_id_t id);
+bool ceq(codegen_ctx_t *ctx, pm_constant_id_t id, const char *s);
+void emit(codegen_ctx_t *ctx, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+void emit_raw(codegen_ctx_t *ctx, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+
+/* --- Type helpers (type.c) --- */
+vtype_t vt_prim(spinel_type_t k);
+vtype_t vt_obj(const char *klass);
+bool vt_is_numeric(vtype_t t);
+bool vt_is_poly_eligible(vtype_t t);
+char *poly_box_expr_vt(codegen_ctx_t *ctx, vtype_t src, const char *expr);
+char *poly_box_expr(spinel_type_t src_kind, const char *expr);
 const char *spinel_type_cname(spinel_type_t type);
+char *vt_ctype(codegen_ctx_t *ctx, vtype_t t, bool as_ptr);
+bool is_gc_type(codegen_ctx_t *ctx, vtype_t t);
+vtype_t binop_result(vtype_t l, vtype_t r, const char *op);
+
+/* --- Lookup functions (codegen.c) --- */
+class_info_t *find_class(codegen_ctx_t *ctx, const char *name);
+method_info_t *find_method(class_info_t *cls, const char *name);
+method_info_t *find_method_inherited(codegen_ctx_t *ctx, class_info_t *cls, const char *name, class_info_t **owner);
+ivar_info_t *find_ivar(class_info_t *cls, const char *name);
+module_info_t *find_module(codegen_ctx_t *ctx, const char *name);
+func_info_t *find_func(codegen_ctx_t *ctx, const char *name);
+
+/* --- Variable management (codegen.c) --- */
+var_entry_t *var_lookup(codegen_ctx_t *ctx, const char *name);
+var_entry_t *var_declare(codegen_ctx_t *ctx, const char *name, vtype_t type, bool is_constant);
+char *make_cname(const char *name, bool is_constant);
+const char *sanitize_method(const char *name);
+
+/* --- Polymorphism helpers (codegen.c) --- */
+void poly_class_add(codegen_ctx_t *ctx, const char *func_name, int param_idx, const char *class_name);
+int poly_class_get(codegen_ctx_t *ctx, const char *func_name, int param_idx, char classes[][64]);
+int mega_dispatch_register(codegen_ctx_t *ctx, const char *method, const char *sanitized, char classes[][64], int nclasses, spinel_type_t return_kind);
+
+/* --- Capture management (codegen.c) --- */
+void capture_list_add(capture_list_t *cl, const char *name);
+bool capture_list_has(capture_list_t *cl, const char *name);
+void scan_captures(codegen_ctx_t *ctx, pm_node_t *node, const char *param_name, capture_list_t *local_defs, capture_list_t *result);
+
+/* --- Type inference (type.c) --- */
+vtype_t infer_type(codegen_ctx_t *ctx, pm_node_t *node);
+void infer_pass(codegen_ctx_t *ctx, pm_node_t *node);
+void resolve_class_types(codegen_ctx_t *ctx, pm_node_t *prog_root);
+
+/* --- Class analysis (codegen.c) --- */
+void class_analysis_pass(codegen_ctx_t *ctx, pm_node_t *root);
+bool has_yield_nodes(pm_node_t *node);
+
+/* --- Expression codegen (expr.c) --- */
+char *codegen_expr(codegen_ctx_t *ctx, pm_node_t *node);
+
+/* --- Statement codegen (stmt.c) --- */
+void codegen_stmt(codegen_ctx_t *ctx, pm_node_t *node);
+void codegen_stmts(codegen_ctx_t *ctx, pm_node_t *node);
+void codegen_pattern_cond(codegen_ctx_t *ctx, pm_node_t *pattern, int case_id);
+
+/* --- Emission functions (emit.c) --- */
+void emit_header(codegen_ctx_t *ctx);
+void emit_struct(codegen_ctx_t *ctx, class_info_t *cls);
+void emit_initialize_func(codegen_ctx_t *ctx, class_info_t *cls);
+void emit_constructor(codegen_ctx_t *ctx, class_info_t *cls);
+void emit_method(codegen_ctx_t *ctx, class_info_t *cls, method_info_t *m);
+void emit_top_func(codegen_ctx_t *ctx, func_info_t *f);
+void emit_module(codegen_ctx_t *ctx, module_info_t *mod);
+void emit_lambda_fizzbuzz_funcs(codegen_ctx_t *ctx);
+void emit_mega_dispatch_funcs(codegen_ctx_t *ctx);
+
+/* --- Lambda codegen (codegen.c) --- */
+char *codegen_lambda(codegen_ctx_t *ctx, pm_lambda_node_t *lam);
+
+/* --- Require handling (codegen.c) --- */
+bool is_require_relative(codegen_ctx_t *ctx, pm_node_t *node);
 
 #endif /* SPINEL_CODEGEN_H */

@@ -18,7 +18,7 @@ PRISM_LIB     = $(PRISM_DIR)/build/libprism.a
 PRISM_CFLAGS  = -I$(PRISM_DIR)/include
 
 # Sources
-SRCS = src/main.c src/codegen.c
+SRCS = src/main.c src/codegen.c src/type.c src/expr.c src/stmt.c src/emit.c
 OBJS = $(SRCS:.c=.o)
 
 # Default target
