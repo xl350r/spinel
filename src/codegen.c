@@ -344,6 +344,7 @@ static void analyze_method(codegen_ctx_t *ctx, class_info_t *cls,
 
     m->body_node = def->body ? (pm_node_t *)def->body : NULL;
     m->params_node = def->parameters ? (pm_node_t *)def->parameters : NULL;
+    m->origin_parser = ctx->parser;
     m->param_count = 0;
     m->is_getter = false;
     m->is_setter = false;
@@ -551,6 +552,7 @@ static void analyze_class(codegen_ctx_t *ctx, pm_class_node_t *node) {
                 free(name);
                 m->body_node = def->body ? (pm_node_t *)def->body : NULL;
                 m->params_node = def->parameters ? (pm_node_t *)def->parameters : NULL;
+                m->origin_parser = ctx->parser;
                 m->param_count = 0;
                 m->is_getter = false;
                 m->is_setter = false;
@@ -2354,11 +2356,16 @@ void codegen_program(codegen_ctx_t *ctx, pm_node_t *root) {
     for (int i = 0; i < ctx->class_count; i++) {
         class_info_t *cls = &ctx->classes[i];
         pm_parser_t *saved = ctx->parser;
-        if (cls->origin_parser)
-            ctx->parser = cls->origin_parser;
-        for (int j = 0; j < cls->method_count; j++)
-            emit_method(ctx, cls, &cls->methods[j]);
-        ctx->parser = saved;
+        for (int j = 0; j < cls->method_count; j++) {
+            method_info_t *m = &cls->methods[j];
+            /* Use method's own parser for correct constant pool access */
+            if (m->origin_parser)
+                ctx->parser = m->origin_parser;
+            else if (cls->origin_parser)
+                ctx->parser = cls->origin_parser;
+            emit_method(ctx, cls, m);
+            ctx->parser = saved;
+        }
     }
 
     if (ctx->lambda_mode) {
