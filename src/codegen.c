@@ -2554,17 +2554,31 @@ void codegen_program(codegen_ctx_t *ctx, pm_node_t *root) {
         }
     }
 
+    /* Clear method parameter entries from var table before top-level inference.
+     * class_analysis_pass registers method params which pollute the table
+     * (e.g., method param 'obj' conflicts with top-level var 'obj'). */
+    {
+        int top_var_count = ctx->var_count;
+        for (int i = top_var_count; i < MAX_VARS; i++)
+            ctx->vars[i].name[0] = '\0';
+    }
+
     /* Pass 2: Type inference for top-level code */
     infer_pass(ctx, root);
 
     /* Pass 2b: Resolve class types */
     resolve_class_types(ctx, root);
+    /* Clear stale var entries left by resolve (method param temp registrations) */
+    for (int i = ctx->var_count; i < MAX_VARS && ctx->vars[i].name[0]; i++)
+        ctx->vars[i].name[0] = '\0';
 
     /* Pass 2c: Re-infer variable types now that function return types are resolved */
     infer_pass(ctx, root);
 
     /* Pass 2d: Re-run cross-function inference now that variable types are updated */
     resolve_class_types(ctx, root);
+    for (int i = ctx->var_count; i < MAX_VARS && ctx->vars[i].name[0]; i++)
+        ctx->vars[i].name[0] = '\0';
     infer_pass(ctx, root);
 
     /* Detect needs_poly: any POLY-typed variable or function param triggers poly runtime */
