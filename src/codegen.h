@@ -16,69 +16,69 @@
 
 /* Inferred type for an expression or variable */
 typedef enum {
-    SPINEL_TYPE_UNKNOWN = 0,
-    SPINEL_TYPE_INTEGER,
-    SPINEL_TYPE_FLOAT,
-    SPINEL_TYPE_BOOLEAN,
-    SPINEL_TYPE_STRING,
-    SPINEL_TYPE_NIL,
-    SPINEL_TYPE_OBJECT,  /* user-defined class instance */
-    SPINEL_TYPE_ARRAY,   /* sp_IntArray * (built-in integer array) */
-    SPINEL_TYPE_FLOAT_ARRAY, /* sp_FloatArray * (built-in float array) */
-    SPINEL_TYPE_HASH,    /* sp_StrIntHash * (string→integer hash table) */
-    SPINEL_TYPE_PROC,    /* sp_Val * (lambda/closure) */
-    SPINEL_TYPE_POLY,    /* sp_RbValue (polymorphic: tagged union) */
-    SPINEL_TYPE_VALUE,   /* boxed mrb_value (fallback) */
-    SPINEL_TYPE_STR_ARRAY, /* sp_StrArray * (string array from split) */
-    SPINEL_TYPE_REGEXP,    /* compiled regex pattern (regex_t *) */
-    SPINEL_TYPE_RANGE,     /* sp_Range (integer range: first..last) */
-    SPINEL_TYPE_TIME,      /* sp_Time (wraps time_t) */
-    SPINEL_TYPE_RB_ARRAY,  /* sp_RbArray * (heterogeneous array of sp_RbValue) */
-    SPINEL_TYPE_RB_HASH,   /* sp_RbHash * (heterogeneous hash: string key → sp_RbValue) */
-    SPINEL_TYPE_SP_STRING, /* sp_String * (mutable, GC-managed string) */
-    SPINEL_TYPE_FILE,      /* sp_File * (file object wrapping FILE *) */
-    SPINEL_TYPE_STRINGIO,  /* sp_StringIO * (in-memory IO) */
+  SPINEL_TYPE_UNKNOWN = 0,
+  SPINEL_TYPE_INTEGER,
+  SPINEL_TYPE_FLOAT,
+  SPINEL_TYPE_BOOLEAN,
+  SPINEL_TYPE_STRING,
+  SPINEL_TYPE_NIL,
+  SPINEL_TYPE_OBJECT,  /* user-defined class instance */
+  SPINEL_TYPE_ARRAY,   /* sp_IntArray * (built-in integer array) */
+  SPINEL_TYPE_FLOAT_ARRAY, /* sp_FloatArray * (built-in float array) */
+  SPINEL_TYPE_HASH,    /* sp_StrIntHash * (string→integer hash table) */
+  SPINEL_TYPE_PROC,    /* sp_Val * (lambda/closure) */
+  SPINEL_TYPE_POLY,    /* sp_RbValue (polymorphic: tagged union) */
+  SPINEL_TYPE_VALUE,   /* boxed mrb_value (fallback) */
+  SPINEL_TYPE_STR_ARRAY, /* sp_StrArray * (string array from split) */
+  SPINEL_TYPE_REGEXP,    /* compiled regex pattern (regex_t *) */
+  SPINEL_TYPE_RANGE,     /* sp_Range (integer range: first..last) */
+  SPINEL_TYPE_TIME,      /* sp_Time (wraps time_t) */
+  SPINEL_TYPE_RB_ARRAY,  /* sp_RbArray * (heterogeneous array of sp_RbValue) */
+  SPINEL_TYPE_RB_HASH,   /* sp_RbHash * (heterogeneous hash: string key → sp_RbValue) */
+  SPINEL_TYPE_SP_STRING, /* sp_String * (mutable, GC-managed string) */
+  SPINEL_TYPE_FILE,      /* sp_File * (file object wrapping FILE *) */
+  SPINEL_TYPE_STRINGIO,  /* sp_StringIO * (in-memory IO) */
 } spinel_type_t;
 
 /* Extended type: kind + optional class name for OBJECT types */
 typedef struct {
-    spinel_type_t kind;
-    char klass[64];      /* class name when kind == SPINEL_TYPE_OBJECT */
+  spinel_type_t kind;
+  char klass[64];      /* class name when kind == SPINEL_TYPE_OBJECT */
 } vtype_t;
 
 /* Instance variable info */
 typedef struct {
-    char name[64];
-    vtype_t type;
+  char name[64];
+  vtype_t type;
 } ivar_info_t;
 
 /* Method parameter info */
 typedef struct {
-    char name[64];
-    vtype_t type;
-    bool is_array;
-    bool is_optional;
-    bool is_keyword;     /* true for keyword parameters (name:) */
-    void *default_node;  /* pm_node_t * for optional param default value */
+  char name[64];
+  vtype_t type;
+  bool is_array;
+  bool is_optional;
+  bool is_keyword;     /* true for keyword parameters (name:) */
+  void *default_node;  /* pm_node_t * for optional param default value */
 } param_info_t;
 
 /* Method info */
 #define MAX_PARAMS 16
 typedef struct {
-    char name[64];
-    pm_node_t *body_node;  /* AST of the method body */
-    pm_node_t *params_node;
-    param_info_t params[MAX_PARAMS];
-    int param_count;
-    vtype_t return_type;
-    bool is_getter;        /* simple ivar getter: def x; @x; end */
-    bool is_setter;        /* simple ivar setter: def x=(v); @x = v; end */
-    char accessor_ivar[64]; /* ivar name for getter/setter */
-    bool is_class_method;  /* true for def self.foo (class method) */
-    bool has_rest;         /* true if method has *rest parameter */
-    char rest_name[64];    /* name of the rest parameter */
-    bool has_yield;        /* true if method body contains yield */
-    pm_parser_t *origin_parser; /* parser that owns this method's AST */
+  char name[64];
+  pm_node_t *body_node;  /* AST of the method body */
+  pm_node_t *params_node;
+  param_info_t params[MAX_PARAMS];
+  int param_count;
+  vtype_t return_type;
+  bool is_getter;        /* simple ivar getter: def x; @x; end */
+  bool is_setter;        /* simple ivar setter: def x=(v); @x = v; end */
+  char accessor_ivar[64]; /* ivar name for getter/setter */
+  bool is_class_method;  /* true for def self.foo (class method) */
+  bool has_rest;         /* true if method has *rest parameter */
+  char rest_name[64];    /* name of the rest parameter */
+  bool has_yield;        /* true if method body contains yield */
+  pm_parser_t *origin_parser; /* parser that owns this method's AST */
 } method_info_t;
 
 /* Class info */
@@ -86,41 +86,41 @@ typedef struct {
 #define MAX_METHODS 96
 #define MAX_INCLUDES 16
 typedef struct {
-    char name[64];
-    char superclass[64];   /* superclass name ("" if none) */
-    ivar_info_t ivars[MAX_IVARS];
-    int ivar_count;
-    int own_ivar_start;    /* index where this class's own ivars begin (after inherited) */
-    method_info_t *methods;
-    int method_count;
-    int methods_cap;
-    bool is_value_type;    /* pass by value (small: e.g., Vec) */
-    pm_node_t *class_node; /* AST node of the class definition */
-    char includes[MAX_INCLUDES][64]; /* included module names */
-    int include_count;
-    int class_tag;             /* unique tag for POLY dispatch (SP_T_CLASS_BASE + N) */
-    pm_parser_t *origin_parser; /* parser that owns this class's AST (for require_relative) */
+  char name[64];
+  char superclass[64];   /* superclass name ("" if none) */
+  ivar_info_t ivars[MAX_IVARS];
+  int ivar_count;
+  int own_ivar_start;    /* index where this class's own ivars begin (after inherited) */
+  method_info_t *methods;
+  int method_count;
+  int methods_cap;
+  bool is_value_type;    /* pass by value (small: e.g., Vec) */
+  pm_node_t *class_node; /* AST node of the class definition */
+  char includes[MAX_INCLUDES][64]; /* included module names */
+  int include_count;
+  int class_tag;             /* unique tag for POLY dispatch (SP_T_CLASS_BASE + N) */
+  pm_parser_t *origin_parser; /* parser that owns this class's AST (for require_relative) */
 } class_info_t;
 
 /* Module constant info */
 typedef struct {
-    char name[64];
-    vtype_t type;
-    pm_node_t *value_node;  /* AST node for the value expression */
+  char name[64];
+  vtype_t type;
+  pm_node_t *value_node;  /* AST node for the value expression */
 } module_const_t;
 
 /* Module info (for module Rand etc.) */
 typedef struct {
-    char name[64];
-    method_info_t *methods;
-    int method_count;
-    int methods_cap;
-    ivar_info_t vars[MAX_IVARS];  /* module-level instance vars */
-    int var_count;
-    module_const_t consts[MAX_IVARS]; /* module-level constants */
-    int const_count;
-    pm_node_t *module_node;
-    pm_parser_t *origin_parser;
+  char name[64];
+  method_info_t *methods;
+  int method_count;
+  int methods_cap;
+  ivar_info_t vars[MAX_IVARS];  /* module-level instance vars */
+  int var_count;
+  module_const_t consts[MAX_IVARS]; /* module-level constants */
+  int const_count;
+  pm_node_t *module_node;
+  pm_parser_t *origin_parser;
 } module_info_t;
 
 /* Block callback function type (for yield support) */
@@ -128,28 +128,28 @@ typedef int64_t (*sp_block_fn)(void *env, int64_t arg);
 
 /* Top-level function info */
 typedef struct {
-    char name[64];
-    pm_node_t *body_node;
-    pm_node_t *params_node;
-    param_info_t params[MAX_PARAMS];
-    int param_count;
-    vtype_t return_type;
-    bool has_yield;           /* true if function body contains yield */
-    bool has_rest;            /* true if function has *rest parameter */
-    char rest_name[64];       /* name of the rest parameter */
-    int rest_param_index;     /* index of the rest param in params[] */
-    bool has_block_param;     /* true if function has &block parameter */
-    char block_param_name[64]; /* name of the block parameter (without &) */
+  char name[64];
+  pm_node_t *body_node;
+  pm_node_t *params_node;
+  param_info_t params[MAX_PARAMS];
+  int param_count;
+  vtype_t return_type;
+  bool has_yield;           /* true if function body contains yield */
+  bool has_rest;            /* true if function has *rest parameter */
+  char rest_name[64];       /* name of the rest parameter */
+  int rest_param_index;     /* index of the rest param in params[] */
+  bool has_block_param;     /* true if function has &block parameter */
+  char block_param_name[64]; /* name of the block parameter (without &) */
 } func_info_t;
 
 /* Variable entry in the variable table */
 typedef struct {
-    char name[64];
-    vtype_t type;
-    bool declared;
-    bool is_constant;
-    bool is_array;
-    int array_size;
+  char name[64];
+  vtype_t type;
+  bool declared;
+  bool is_constant;
+  bool is_array;
+  int array_size;
 } var_entry_t;
 
 #define MAX_VARS 1024
@@ -159,200 +159,200 @@ typedef struct {
 
 /* Code generation context */
 typedef struct {
-    pm_parser_t *parser;
-    FILE *out;
-    int indent;
-    var_entry_t vars[MAX_VARS];
-    int var_count;
-    int var_scope_floor;  /* var_lookup searches [var_scope_floor..var_count) first */
-    int temp_counter;
-    int for_depth;
+  pm_parser_t *parser;
+  FILE *out;
+  int indent;
+  var_entry_t vars[MAX_VARS];
+  int var_count;
+  int var_scope_floor;  /* var_lookup searches [var_scope_floor..var_count) first */
+  int temp_counter;
+  int for_depth;
 
-    /* Class/module/function registry */
-    class_info_t classes[MAX_CLASSES];
+  /* Class/module/function registry */
+  class_info_t classes[MAX_CLASSES];
+  int class_count;
+  module_info_t modules[MAX_MODULES];
+  int module_count;
+  func_info_t funcs[MAX_FUNCS];
+  int func_count;
+
+  /* Current method context (NULL when in top-level) */
+  class_info_t *current_class;
+  method_info_t *current_method;
+  module_info_t *current_module;
+  char current_func_name[64]; /* for __method__ in top-level functions */
+
+  /* When true, the last expression in a block should be emitted as a return */
+  bool implicit_return;
+
+  /* Extension method emit context: receiver type when inside an ext method body */
+  spinel_type_t ext_method_recv_type;
+
+  /* Lambda/closure codegen state */
+  int lambda_counter;            /* unique ID for each lambda function */
+  bool lambda_mode;              /* true when fizzbuzz-style lambda code detected */
+  FILE *lambda_out;              /* secondary output for lambda function bodies */
+
+  /* Block/yield codegen state */
+  int block_counter;             /* unique ID for each block callback */
+  FILE *block_out;               /* secondary output for block function bodies */
+  bool in_yield_func;            /* true when inside a function that uses yield */
+
+  /* Non-local return from blocks: when a block contains 'return', it should
+   * return from the enclosing method, not just from the block callback. */
+  bool in_block_nonlocal;        /* true when inside a block with non-local return */
+  int block_return_id;           /* block ID for non-local return env access */
+
+  /* Exception handling: true when raise/rescue is used */
+  bool needs_exc;
+  int exc_counter;   /* unique ID for retry labels */
+
+  /* Hash: true when any sp_StrIntHash is used */
+  bool needs_hash;
+
+  /* String split: true when sp_StrArray is needed outside lambda mode */
+  bool needs_str_split;
+
+  /* GC: true when any non-value-type class or sp_IntArray is used */
+  bool needs_gc;
+  int gc_type_count;  /* number of GC-managed types (for type_id assignment) */
+  bool gc_scope_active; /* true when inside a function with GC roots */
+
+  /* Poly: true when sp_RbValue (polymorphic tagged union) is used */
+  bool needs_poly;
+
+  /* RbArray: true when sp_RbArray (heterogeneous array) is used */
+  bool needs_rb_array;
+
+  /* RbHash: true when sp_RbHash (heterogeneous hash) is used */
+  bool needs_rb_hash;
+
+  /* Poly class set: track which classes a POLY func param can hold */
+  #define MAX_POLY_CLASSES 8
+  struct {
+    char func_name[64];
+    int param_idx;
+    char class_names[MAX_POLY_CLASSES][64];
     int class_count;
-    module_info_t modules[MAX_MODULES];
-    int module_count;
-    func_info_t funcs[MAX_FUNCS];
-    int func_count;
+  } poly_class_sets[MAX_FUNCS];
+  int poly_class_set_count;
 
-    /* Current method context (NULL when in top-level) */
-    class_info_t *current_class;
-    method_info_t *current_method;
-    module_info_t *current_module;
-    char current_func_name[64]; /* for __method__ in top-level functions */
+  /* IntArray: true when sp_IntArray is used */
+  bool needs_intarray;
 
-    /* When true, the last expression in a block should be emitted as a return */
-    bool implicit_return;
+  /* FloatArray: true when sp_FloatArray is used */
+  bool needs_floatarray;
 
-    /* Extension method emit context: receiver type when inside an ext method body */
-    spinel_type_t ext_method_recv_type;
+  /* Range: true when sp_Range is used */
+  bool needs_range;
 
-    /* Lambda/closure codegen state */
-    int lambda_counter;            /* unique ID for each lambda function */
-    bool lambda_mode;              /* true when fizzbuzz-style lambda code detected */
-    FILE *lambda_out;              /* secondary output for lambda function bodies */
+  /* Time: true when sp_Time is used */
+  bool needs_time;
 
-    /* Block/yield codegen state */
-    int block_counter;             /* unique ID for each block callback */
-    FILE *block_out;               /* secondary output for block function bodies */
-    bool in_yield_func;            /* true when inside a function that uses yield */
+  /* StringIO: true when sp_StringIO is used */
+  bool needs_stringio;
 
-    /* Non-local return from blocks: when a block contains 'return', it should
-     * return from the enclosing method, not just from the block callback. */
-    bool in_block_nonlocal;        /* true when inside a block with non-local return */
-    int block_return_id;           /* block ID for non-local return env access */
+  /* Proc: true when sp_Proc (block param / proc {} / Proc.new) is used */
+  bool needs_proc;
 
-    /* Exception handling: true when raise/rescue is used */
-    bool needs_exc;
-    int exc_counter;   /* unique ID for retry labels */
+  /* sp_String: true when mutable strings (<<) are used */
+  bool needs_sp_string;
 
-    /* Hash: true when any sp_StrIntHash is used */
-    bool needs_hash;
+  /* File I/O: true when sp_File (file object with block) is used */
+  bool needs_file_io;
 
-    /* String split: true when sp_StrArray is needed outside lambda mode */
-    bool needs_str_split;
+  /* Regexp: true when any regex literal is used */
+  bool needs_regexp;
+  int regexp_counter;   /* unique ID for each compiled regex pattern */
 
-    /* GC: true when any non-value-type class or sp_IntArray is used */
-    bool needs_gc;
-    int gc_type_count;  /* number of GC-managed types (for type_id assignment) */
-    bool gc_scope_active; /* true when inside a function with GC roots */
+  /* Regexp pattern storage (source strings for initialization) */
+  #define MAX_REGEXPS 64
+  struct {
+    char pattern[256];  /* regex source pattern */
+    int id;             /* unique ID (_re_N) */
+  } regexps[MAX_REGEXPS];
 
-    /* Poly: true when sp_RbValue (polymorphic tagged union) is used */
-    bool needs_poly;
+  /* Megamorphic dispatch: collect per-method dispatch functions for 3+ types */
+  #define MAX_MEGA_DISPATCH 32
+  struct {
+    char method_name[64];                        /* Ruby method name */
+    char sanitized[64];                          /* C-safe method name */
+    char class_names[MAX_POLY_CLASSES][64];      /* classes in the dispatch set */
+    int class_count;
+    spinel_type_t return_kind;                   /* return type kind */
+  } mega_dispatch[MAX_MEGA_DISPATCH];
+  int mega_dispatch_count;
 
-    /* RbArray: true when sp_RbArray (heterogeneous array) is used */
-    bool needs_rb_array;
+  /* Lambda scope stack for capture analysis */
+  #define MAX_LAMBDA_DEPTH 64
+  #define MAX_SCOPE_VARS 32
+  struct {
+    char param[64];            /* parameter name for this lambda */
+    char captures[MAX_SCOPE_VARS][64]; /* captured variable names */
+    int capture_count;
+    int depth;
+  } lambda_scope[MAX_LAMBDA_DEPTH];
+  int lambda_scope_depth;
 
-    /* RbHash: true when sp_RbHash (heterogeneous hash) is used */
-    bool needs_rb_hash;
+  /* Extension methods on built-in types (open class support) */
+  #define MAX_EXT_METHODS 32
+  struct {
+    char type_name[64];    /* "String", "Integer", "Array", etc. */
+    method_info_t method;
+    spinel_type_t recv_type; /* SPINEL_TYPE_STRING, etc. */
+  } ext_methods[MAX_EXT_METHODS];
+  int ext_method_count;
 
-    /* Poly class set: track which classes a POLY func param can hold */
-    #define MAX_POLY_CLASSES 8
-    struct {
-        char func_name[64];
-        int param_idx;
-        char class_names[MAX_POLY_CLASSES][64];
-        int class_count;
-    } poly_class_sets[MAX_FUNCS];
-    int poly_class_set_count;
+  /* Source file path (for resolving require_relative) */
+  const char *source_path;
 
-    /* IntArray: true when sp_IntArray is used */
-    bool needs_intarray;
+  /* Library search paths (for resolving require "name") */
+  #define MAX_LIB_PATHS 16
+  const char *lib_paths[MAX_LIB_PATHS];
+  int lib_path_count;
 
-    /* FloatArray: true when sp_FloatArray is used */
-    bool needs_floatarray;
-
-    /* Range: true when sp_Range is used */
-    bool needs_range;
-
-    /* Time: true when sp_Time is used */
-    bool needs_time;
-
-    /* StringIO: true when sp_StringIO is used */
-    bool needs_stringio;
-
-    /* Proc: true when sp_Proc (block param / proc {} / Proc.new) is used */
-    bool needs_proc;
-
-    /* sp_String: true when mutable strings (<<) are used */
-    bool needs_sp_string;
-
-    /* File I/O: true when sp_File (file object with block) is used */
-    bool needs_file_io;
-
-    /* Regexp: true when any regex literal is used */
-    bool needs_regexp;
-    int regexp_counter;   /* unique ID for each compiled regex pattern */
-
-    /* Regexp pattern storage (source strings for initialization) */
-    #define MAX_REGEXPS 64
-    struct {
-        char pattern[256];  /* regex source pattern */
-        int id;             /* unique ID (_re_N) */
-    } regexps[MAX_REGEXPS];
-
-    /* Megamorphic dispatch: collect per-method dispatch functions for 3+ types */
-    #define MAX_MEGA_DISPATCH 32
-    struct {
-        char method_name[64];                        /* Ruby method name */
-        char sanitized[64];                          /* C-safe method name */
-        char class_names[MAX_POLY_CLASSES][64];      /* classes in the dispatch set */
-        int class_count;
-        spinel_type_t return_kind;                   /* return type kind */
-    } mega_dispatch[MAX_MEGA_DISPATCH];
-    int mega_dispatch_count;
-
-    /* Lambda scope stack for capture analysis */
-    #define MAX_LAMBDA_DEPTH 64
-    #define MAX_SCOPE_VARS 32
-    struct {
-        char param[64];            /* parameter name for this lambda */
-        char captures[MAX_SCOPE_VARS][64]; /* captured variable names */
-        int capture_count;
-        int depth;
-    } lambda_scope[MAX_LAMBDA_DEPTH];
-    int lambda_scope_depth;
-
-    /* Extension methods on built-in types (open class support) */
-    #define MAX_EXT_METHODS 32
-    struct {
-        char type_name[64];    /* "String", "Integer", "Array", etc. */
-        method_info_t method;
-        spinel_type_t recv_type; /* SPINEL_TYPE_STRING, etc. */
-    } ext_methods[MAX_EXT_METHODS];
-    int ext_method_count;
-
-    /* Source file path (for resolving require_relative) */
-    const char *source_path;
-
-    /* Library search paths (for resolving require "name") */
-    #define MAX_LIB_PATHS 16
-    const char *lib_paths[MAX_LIB_PATHS];
-    int lib_path_count;
-
-    /* Required files (kept alive for AST references in method_info_t) */
-    #define MAX_REQUIRED_FILES 80
-    struct {
-        pm_parser_t parser;
-        pm_node_t *root;
-        char *source;
-        char *path; /* resolved path for deduplication (heap-allocated) */
-    } required_files[MAX_REQUIRED_FILES];
-    int required_file_count;
+  /* Required files (kept alive for AST references in method_info_t) */
+  #define MAX_REQUIRED_FILES 80
+  struct {
+    pm_parser_t parser;
+    pm_node_t *root;
+    char *source;
+    char *path; /* resolved path for deduplication (heap-allocated) */
+  } required_files[MAX_REQUIRED_FILES];
+  int required_file_count;
 } codegen_ctx_t;
 
 void codegen_init(codegen_ctx_t *ctx, pm_parser_t *parser, FILE *out,
-                  const char *source_path);
+         const char *source_path);
 void codegen_program(codegen_ctx_t *ctx, pm_node_t *root);
 
 /* --- Capture list (used by expr.c and codegen.c) --- */
 typedef struct {
-    char names[256][64];
-    int count;
+  char names[256][64];
+  int count;
 } capture_list_t;
 
 /* --- C keyword escaping --- */
 static inline const char *escape_c_keyword(const char *name) {
-    /* Only escape the most problematic C keywords that might be ivar names */
-    if (name[0] == 'u' && strcmp(name, "union") == 0) return "union_";
-    if (name[0] == 's' && strcmp(name, "struct") == 0) return "struct_";
-    if (name[0] == 'e' && strcmp(name, "enum") == 0) return "enum_";
-    if (name[0] == 'd' && strcmp(name, "default") == 0) return "default_";
-    if (name[0] == 'r' && strcmp(name, "register") == 0) return "register_";
-    return name;
+  /* Only escape the most problematic C keywords that might be ivar names */
+  if (name[0] == 'u' && strcmp(name, "union") == 0) return "union_";
+  if (name[0] == 's' && strcmp(name, "struct") == 0) return "struct_";
+  if (name[0] == 'e' && strcmp(name, "enum") == 0) return "enum_";
+  if (name[0] == 'd' && strcmp(name, "default") == 0) return "default_";
+  if (name[0] == 'r' && strcmp(name, "register") == 0) return "register_";
+  return name;
 }
 
 /* --- Default initializer for a type kind (e.g., " = 0" for INTEGER) --- */
 static inline const char *default_init_for_type(spinel_type_t kind) {
-    switch (kind) {
-    case SPINEL_TYPE_INTEGER: return " = 0";
-    case SPINEL_TYPE_FLOAT:   return " = 0.0";
-    case SPINEL_TYPE_BOOLEAN: return " = FALSE";
-    case SPINEL_TYPE_STRING:
-    case SPINEL_TYPE_PROC:    return " = NULL";
-    default:                  return "";
-    }
+  switch (kind) {
+  case SPINEL_TYPE_INTEGER: return " = 0";
+  case SPINEL_TYPE_FLOAT:   return " = 0.0";
+  case SPINEL_TYPE_BOOLEAN: return " = FALSE";
+  case SPINEL_TYPE_STRING:
+  case SPINEL_TYPE_PROC:    return " = NULL";
+  default:                  return "";
+  }
 }
 
 /* --- Shared utility functions (codegen.c) --- */
@@ -439,8 +439,8 @@ char *codegen_lambda(codegen_ctx_t *ctx, pm_lambda_node_t *lam);
 /* --- Block/parameter helpers (codegen.c) --- */
 char *extract_block_param(codegen_ctx_t *ctx, pm_block_node_t *blk);
 void extract_params(codegen_ctx_t *ctx, pm_parameters_node_t *params,
-                    param_info_t *out, int *count, bool *has_rest,
-                    char *rest_name, size_t rest_name_size);
+          param_info_t *out, int *count, bool *has_rest,
+          char *rest_name, size_t rest_name_size);
 
 /* --- Require handling (codegen.c) --- */
 bool is_require_relative(codegen_ctx_t *ctx, pm_node_t *node);
