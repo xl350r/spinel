@@ -782,6 +782,7 @@ static char *codegen_expr_call(codegen_ctx_t *ctx, pm_call_node_t *call, pm_node
         PM_NODE_TYPE(call->receiver) == PM_CONSTANT_READ_NODE) {
         pm_constant_read_node_t *_cr = (pm_constant_read_node_t *)call->receiver;
         if (ceq(ctx, _cr->name, "StringIO")) {
+            ctx->needs_stringio = true;
             ctx->needs_gc = true;
             int argc = call->arguments ? (int)call->arguments->arguments.size : 0;
             char *r;
@@ -1059,6 +1060,7 @@ static char *codegen_expr_call(codegen_ctx_t *ctx, pm_call_node_t *call, pm_node
             }
             /* File class methods */
             if (ceq(ctx, cr->name, "File")) {
+                ctx->needs_file_io = true;
                 if (strcmp(method, "read") == 0 && call->arguments &&
                     call->arguments->arguments.size == 1) {
                     char *path = codegen_expr(ctx, call->arguments->arguments.nodes[0]);
@@ -2556,9 +2558,10 @@ static char *codegen_expr_call(codegen_ctx_t *ctx, pm_call_node_t *call, pm_node
                 ctx->needs_str_split = true; /* ensures sp_StrArray is emitted */
                 r = sfmt("sp_str_chars(%s)", recv);
             }
-            else if (strcmp(method, "bytes") == 0)
+            else if (strcmp(method, "bytes") == 0) {
+                ctx->needs_intarray = true; ctx->needs_gc = true;
                 r = sfmt("sp_str_bytes(%s)", recv);
-            else if (strcmp(method, "freeze") == 0)
+            } else if (strcmp(method, "freeze") == 0)
                 r = sfmt("%s", recv); /* no-op in AOT */
             else if (strcmp(method, "frozen?") == 0)
                 r = xstrdup("TRUE"); /* all strings frozen in AOT */

@@ -1069,7 +1069,8 @@ void emit_header(codegen_ctx_t *ctx) {
     emit_raw(ctx, "    if (idx < 0 || idx >= len) return \"\";\n");
     emit_raw(ctx, "    char *r = (char *)malloc(2); r[0] = s[idx]; r[1] = '\\0'; return r;\n}\n\n");
 
-    /* ---- File I/O helpers ---- */
+    /* ---- File I/O helpers (only when needed) ---- */
+    if (ctx->needs_file_io) {
     emit_raw(ctx, "static const char *sp_File_read(const char *path) {\n");
     emit_raw(ctx, "    FILE *f = fopen(path, \"rb\"); if (!f) return \"\";\n");
     emit_raw(ctx, "    fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET);\n");
@@ -1139,8 +1140,10 @@ void emit_header(codegen_ctx_t *ctx) {
     emit_raw(ctx, "    char *buf = (char *)malloc(remain + 1);\n");
     emit_raw(ctx, "    fread(buf, 1, remain, f->fp); buf[remain] = 0;\n");
     emit_raw(ctx, "    return buf;\n}\n\n");
+    } /* needs_file_io */
 
-    /* ---- sp_StringIO: in-memory IO ---- */
+    /* ---- sp_StringIO: in-memory IO (only when needed) ---- */
+    if (ctx->needs_stringio) {
     emit_raw(ctx, "#include <stdarg.h>\n");
     emit_raw(ctx, "typedef struct {\n");
     emit_raw(ctx, "    char *buf; int64_t len; int64_t cap; int64_t pos; int64_t lineno; int closed;\n");
@@ -1212,6 +1215,7 @@ void emit_header(codegen_ctx_t *ctx) {
     emit_raw(ctx, "static mrb_bool sp_StringIO_sync(sp_StringIO *s) { (void)s; return 1; }\n");
     emit_raw(ctx, "static mrb_bool sp_StringIO_isatty(sp_StringIO *s) { (void)s; return 0; }\n");
     emit_raw(ctx, "static int64_t sp_StringIO_fileno(sp_StringIO *s) { (void)s; return -1; }\n\n");
+    } /* needs_stringio */
 
     /* ---- Additional string helpers ---- */
     emit_raw(ctx, "static const char *sp_str_strip(const char *s) {\n");
@@ -1790,34 +1794,38 @@ void emit_header(codegen_ctx_t *ctx) {
         emit_raw(ctx, "}\n\n");
     }
 
-    /* Built-in sp_IntArray for Array support */
-    emit_raw(ctx, "/* ---- Built-in integer array ---- */\n");
-    /* sp_IntArray: deque-like array with O(1) shift via start offset */
-    emit_raw(ctx, "typedef struct { mrb_int *data; mrb_int start; mrb_int len; mrb_int cap; } sp_IntArray;\n\n");
+    /* Built-in sp_IntArray for Array support (only when needed) */
+    if (ctx->needs_intarray || ctx->needs_range) {
+        emit_raw(ctx, "/* ---- Built-in integer array ---- */\n");
+        emit_raw(ctx, "typedef struct { mrb_int *data; mrb_int start; mrb_int len; mrb_int cap; } sp_IntArray;\n\n");
+    }
 
-    /* Built-in sp_Range for Range support */
-    emit_raw(ctx, "/* ---- Built-in integer range ---- */\n");
-    emit_raw(ctx, "typedef struct { mrb_int first; mrb_int last; } sp_Range;\n");
-    emit_raw(ctx, "static sp_Range sp_Range_new(mrb_int first, mrb_int last) {\n");
-    emit_raw(ctx, "    sp_Range r; r.first = first; r.last = last; return r;\n}\n");
-    emit_raw(ctx, "static mrb_bool sp_Range_include_p(sp_Range r, mrb_int v) {\n");
-    emit_raw(ctx, "    return v >= r.first && v <= r.last;\n}\n");
-    /* sp_Range_to_a needs sp_IntArray_from_range which is defined later;
-     * forward declare it and define to_a after IntArray is available */
-    emit_raw(ctx, "static sp_IntArray *sp_IntArray_from_range(mrb_int, mrb_int);\n");
-    emit_raw(ctx, "static sp_IntArray *sp_Range_to_a(sp_Range r) {\n");
-    emit_raw(ctx, "    return sp_IntArray_from_range(r.first, r.last);\n}\n\n");
+    /* Built-in sp_Range for Range support (only when needed) */
+    if (ctx->needs_range) {
+        emit_raw(ctx, "/* ---- Built-in integer range ---- */\n");
+        emit_raw(ctx, "typedef struct { mrb_int first; mrb_int last; } sp_Range;\n");
+        emit_raw(ctx, "static sp_Range sp_Range_new(mrb_int first, mrb_int last) {\n");
+        emit_raw(ctx, "    sp_Range r; r.first = first; r.last = last; return r;\n}\n");
+        emit_raw(ctx, "static mrb_bool sp_Range_include_p(sp_Range r, mrb_int v) {\n");
+        emit_raw(ctx, "    return v >= r.first && v <= r.last;\n}\n");
+        emit_raw(ctx, "static sp_IntArray *sp_IntArray_from_range(mrb_int, mrb_int);\n");
+        emit_raw(ctx, "static sp_IntArray *sp_Range_to_a(sp_Range r) {\n");
+        emit_raw(ctx, "    return sp_IntArray_from_range(r.first, r.last);\n}\n\n");
+    }
 
-    /* Built-in sp_Time for Time support */
-    emit_raw(ctx, "/* ---- Built-in time ---- */\n");
-    emit_raw(ctx, "#include <time.h>\n");
-    emit_raw(ctx, "typedef struct { time_t t; } sp_Time;\n");
-    emit_raw(ctx, "static sp_Time sp_Time_now(void) { sp_Time r; r.t = time(NULL); return r; }\n");
-    emit_raw(ctx, "static sp_Time sp_Time_at(mrb_int n) { sp_Time r; r.t = (time_t)n; return r; }\n");
-    emit_raw(ctx, "static mrb_int sp_Time_to_i(sp_Time t) { return (mrb_int)t.t; }\n");
-    emit_raw(ctx, "static mrb_int sp_Time_diff(sp_Time a, sp_Time b) { return (mrb_int)(a.t - b.t); }\n\n");
+    /* Built-in sp_Time for Time support (only when needed) */
+    if (ctx->needs_time) {
+        emit_raw(ctx, "/* ---- Built-in time ---- */\n");
+        emit_raw(ctx, "#include <time.h>\n");
+        emit_raw(ctx, "typedef struct { time_t t; } sp_Time;\n");
+        emit_raw(ctx, "static sp_Time sp_Time_now(void) { sp_Time r; r.t = time(NULL); return r; }\n");
+        emit_raw(ctx, "static sp_Time sp_Time_at(mrb_int n) { sp_Time r; r.t = (time_t)n; return r; }\n");
+        emit_raw(ctx, "static mrb_int sp_Time_to_i(sp_Time t) { return (mrb_int)t.t; }\n");
+        emit_raw(ctx, "static mrb_int sp_Time_diff(sp_Time a, sp_Time b) { return (mrb_int)(a.t - b.t); }\n\n");
+    }
 
-    if (ctx->needs_gc) {
+    if (ctx->needs_intarray || ctx->needs_range) {
+      if (ctx->needs_gc) {
         /* GC-managed IntArray: finalizer frees internal data pointer */
         emit_raw(ctx, "static void sp_IntArray_finalize(void *p) {\n");
         emit_raw(ctx, "    sp_IntArray *a = (sp_IntArray *)p;\n");
@@ -1829,12 +1837,12 @@ void emit_header(codegen_ctx_t *ctx) {
         emit_raw(ctx, "    a->cap = 16; a->data = (mrb_int *)malloc(sizeof(mrb_int) * a->cap);\n");
         emit_raw(ctx, "    sp_gc_bytes += sizeof(mrb_int) * a->cap;\n");
         emit_raw(ctx, "    return a;\n}\n\n");
-    } else {
+      } else {
         emit_raw(ctx, "static sp_IntArray *sp_IntArray_new(void) {\n");
         emit_raw(ctx, "    sp_IntArray *a = (sp_IntArray *)calloc(1, sizeof(sp_IntArray));\n");
         emit_raw(ctx, "    a->cap = 16; a->data = (mrb_int *)malloc(sizeof(mrb_int) * a->cap);\n");
         emit_raw(ctx, "    return a;\n}\n\n");
-    }
+      } /* needs_gc if/else */
 
     emit_raw(ctx, "static sp_IntArray *sp_IntArray_from_range(mrb_int start, mrb_int end) {\n");
     emit_raw(ctx, "    sp_IntArray *a = sp_IntArray_new();\n");
@@ -1951,8 +1959,10 @@ void emit_header(codegen_ctx_t *ctx) {
     emit_raw(ctx, "    a->data[a->start + idx] = val;\n");
     emit_raw(ctx, "    a->len++;\n");
     emit_raw(ctx, "}\n\n");
+    } /* needs_intarray || needs_range */
 
-    /* Built-in sp_FloatArray for float array support */
+    /* Built-in sp_FloatArray for float array support (only when needed) */
+    if (ctx->needs_floatarray) {
     emit_raw(ctx, "/* ---- Built-in float array ---- */\n");
     emit_raw(ctx, "typedef struct { mrb_float *data; mrb_int start; mrb_int len; mrb_int cap; } sp_FloatArray;\n\n");
 
@@ -2001,6 +2011,7 @@ void emit_header(codegen_ctx_t *ctx) {
 
     emit_raw(ctx, "static mrb_int sp_FloatArray_length(sp_FloatArray *a) {\n");
     emit_raw(ctx, "    return a->len;\n}\n\n");
+    } /* needs_floatarray */
 
     /* Built-in sp_StrArray for string split support (only when needed) */
     if (ctx->needs_str_split && !ctx->lambda_mode) {
@@ -2039,10 +2050,12 @@ void emit_header(codegen_ctx_t *ctx) {
     }
 
     /* bytes → sp_IntArray (depends on sp_IntArray being defined) */
+    if (ctx->needs_intarray) {
     emit_raw(ctx, "static sp_IntArray *sp_str_bytes(const char *s) {\n");
     emit_raw(ctx, "    sp_IntArray *a = sp_IntArray_new();\n");
     emit_raw(ctx, "    for (size_t i = 0; s[i]; i++) sp_IntArray_push(a, (unsigned char)s[i]);\n");
     emit_raw(ctx, "    return a;\n}\n\n");
+    }
 
     /* sp_re_split — split string by regexp (depends on sp_StrArray) */
     if (ctx->needs_regexp && ctx->needs_str_split) {

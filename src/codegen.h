@@ -237,6 +237,21 @@ typedef struct {
     } poly_class_sets[MAX_FUNCS];
     int poly_class_set_count;
 
+    /* IntArray: true when sp_IntArray is used */
+    bool needs_intarray;
+
+    /* FloatArray: true when sp_FloatArray is used */
+    bool needs_floatarray;
+
+    /* Range: true when sp_Range is used */
+    bool needs_range;
+
+    /* Time: true when sp_Time is used */
+    bool needs_time;
+
+    /* StringIO: true when sp_StringIO is used */
+    bool needs_stringio;
+
     /* Proc: true when sp_Proc (block param / proc {} / Proc.new) is used */
     bool needs_proc;
 

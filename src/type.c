@@ -553,7 +553,7 @@ vtype_t infer_type(codegen_ctx_t *ctx, pm_node_t *node) {
                 if (strcmp(method, "dup") == 0) { ctx->needs_sp_string = true; free(method); return vt_prim(SPINEL_TYPE_SP_STRING); }
                 if (strcmp(method, "frozen?") == 0) { free(method); return vt_prim(SPINEL_TYPE_BOOLEAN); }
                 if (strcmp(method, "chars") == 0) { free(method); return vt_prim(SPINEL_TYPE_STR_ARRAY); }
-                if (strcmp(method, "bytes") == 0) { free(method); return vt_prim(SPINEL_TYPE_ARRAY); }
+                if (strcmp(method, "bytes") == 0) { ctx->needs_intarray = ctx->needs_gc = true; free(method); return vt_prim(SPINEL_TYPE_ARRAY); }
                 if (strcmp(method, "hex") == 0 || strcmp(method, "oct") == 0) { free(method); return vt_prim(SPINEL_TYPE_INTEGER); }
                 if (strcmp(method, "getbyte") == 0 || strcmp(method, "bytesize") == 0) { free(method); return vt_prim(SPINEL_TYPE_INTEGER); }
             }
@@ -773,6 +773,7 @@ vtype_t infer_type(codegen_ctx_t *ctx, pm_node_t *node) {
                 return vt_prim(SPINEL_TYPE_FLOAT);
             }
             if (strcmp(mod_name, "File") == 0) {
+                ctx->needs_file_io = true;
                 if (strcmp(method, "read") == 0 || strcmp(method, "join") == 0 ||
                     strcmp(method, "expand_path") == 0 || strcmp(method, "basename") == 0 ||
                     strcmp(method, "dirname") == 0 || strcmp(method, "readlink") == 0) {

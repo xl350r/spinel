@@ -2566,6 +2566,42 @@ void codegen_program(codegen_ctx_t *ctx, pm_node_t *root) {
     /* Detect string split usage */
     ctx->needs_str_split = has_split_calls(ctx, root);
 
+    /* Detect type-specific needs by scanning source text for type references.
+     * This is a conservative approximation — false positives just add unused
+     * static functions (harmless), false negatives are very unlikely. */
+    {
+        const char *src = (const char *)ctx->parser->start;
+        size_t slen = ctx->parser->end - ctx->parser->start;
+        for (size_t i = 0; i < slen; i++) {
+            if (src[i] == 'F' && i + 4 < slen && (memcmp(src + i, "File.", 5) == 0 || memcmp(src + i, "File ", 5) == 0))
+                ctx->needs_file_io = true;
+            else if (src[i] == 'D' && i + 3 < slen && memcmp(src + i, "Dir.", 4) == 0)
+                ctx->needs_file_io = true;
+            else if (src[i] == 'T' && i + 4 < slen && memcmp(src + i, "Time.", 5) == 0)
+                ctx->needs_time = true;
+            else if (src[i] == 'S' && i + 9 < slen && memcmp(src + i, "StringIO.", 9) == 0)
+                { ctx->needs_stringio = true; ctx->needs_gc = true; }
+            else if (src[i] == '.' && i + 1 < slen && src[i + 1] == '.')
+                { ctx->needs_range = true; ctx->needs_intarray = true; ctx->needs_gc = true; i++; }
+            else if (src[i] == '.' && i + 5 < slen && memcmp(src + i, ".bytes", 6) == 0)
+                { ctx->needs_intarray = true; ctx->needs_gc = true; }
+        }
+        /* Also scan required files */
+        for (int ri = 0; ri < ctx->required_file_count; ri++) {
+            const char *rs = ctx->required_files[ri].source;
+            if (!rs) continue;
+            size_t rlen = strlen(rs);
+            for (size_t i = 0; i < rlen; i++) {
+                if (rs[i] == 'F' && i + 4 < rlen && memcmp(rs + i, "File.", 5) == 0)
+                    ctx->needs_file_io = true;
+                else if (rs[i] == 'T' && i + 4 < rlen && memcmp(rs + i, "Time.", 5) == 0)
+                    ctx->needs_time = true;
+                else if (rs[i] == '.' && i + 1 < rlen && rs[i + 1] == '.')
+                    { ctx->needs_range = true; ctx->needs_intarray = true; ctx->needs_gc = true; i++; }
+            }
+        }
+    }
+
     /* Detect regexp usage and collect patterns (must be before emit_header) */
     collect_regexp_patterns(ctx, root);
 
@@ -2726,6 +2762,10 @@ void codegen_program(codegen_ctx_t *ctx, pm_node_t *root) {
 
     /* For large multi-file programs, enable all runtime features */
     if (ctx->required_file_count > 5) {
+        ctx->needs_intarray = true;
+        ctx->needs_floatarray = true;
+        ctx->needs_range = true;
+        ctx->needs_time = true;
         ctx->needs_hash = true;
         ctx->needs_rb_array = true;
         ctx->needs_rb_hash = true;
@@ -2736,52 +2776,38 @@ void codegen_program(codegen_ctx_t *ctx, pm_node_t *root) {
         ctx->needs_proc = true;
     }
 
+    /* Helper: set needs_* flags based on a type kind */
+    #define SET_NEEDS_FOR_TYPE(k) do { \
+        if ((k) == SPINEL_TYPE_ARRAY)       ctx->needs_intarray = true; \
+        if ((k) == SPINEL_TYPE_FLOAT_ARRAY) ctx->needs_floatarray = true; \
+        if ((k) == SPINEL_TYPE_RANGE)       ctx->needs_range = true; \
+        if ((k) == SPINEL_TYPE_TIME)        ctx->needs_time = true; \
+        if ((k) == SPINEL_TYPE_STRINGIO)    ctx->needs_stringio = true; \
+        if ((k) == SPINEL_TYPE_HASH)      { ctx->needs_hash = true; ctx->needs_intarray = true; } \
+        if ((k) == SPINEL_TYPE_SP_STRING)   ctx->needs_sp_string = true; \
+        if ((k) == SPINEL_TYPE_STR_ARRAY)   ctx->needs_str_split = true; \
+        if ((k) == SPINEL_TYPE_RB_ARRAY)  { ctx->needs_rb_array = true; ctx->needs_poly = true; } \
+        if ((k) == SPINEL_TYPE_RB_HASH)   { ctx->needs_rb_hash = true; ctx->needs_poly = true; } \
+        if ((k) == SPINEL_TYPE_POLY)        ctx->needs_poly = true; \
+        if ((k) == SPINEL_TYPE_FILE)        ctx->needs_file_io = true; \
+    } while(0)
+
     /* Detect needs from class ivars and method params/returns */
     for (int ci = 0; ci < ctx->class_count; ci++) {
         class_info_t *cls = &ctx->classes[ci];
-        for (int ii = 0; ii < cls->ivar_count; ii++) {
-            spinel_type_t k = cls->ivars[ii].type.kind;
-            if (k == SPINEL_TYPE_SP_STRING) ctx->needs_sp_string = true;
-            if (k == SPINEL_TYPE_HASH) ctx->needs_hash = true;
-            if (k == SPINEL_TYPE_ARRAY || k == SPINEL_TYPE_FLOAT_ARRAY) ctx->needs_gc = true;
-            if (k == SPINEL_TYPE_RB_ARRAY) { ctx->needs_rb_array = true; ctx->needs_poly = true; }
-            if (k == SPINEL_TYPE_RB_HASH) { ctx->needs_rb_hash = true; ctx->needs_poly = true; }
-            if (k == SPINEL_TYPE_STR_ARRAY) ctx->needs_str_split = true;
-            if (k == SPINEL_TYPE_POLY) ctx->needs_poly = true;
-        }
+        for (int ii = 0; ii < cls->ivar_count; ii++)
+            SET_NEEDS_FOR_TYPE(cls->ivars[ii].type.kind);
         for (int mi = 0; mi < cls->method_count; mi++) {
             method_info_t *m = &cls->methods[mi];
-            spinel_type_t rk = m->return_type.kind;
-            if (rk == SPINEL_TYPE_HASH) ctx->needs_hash = true;
-            if (rk == SPINEL_TYPE_RB_ARRAY) { ctx->needs_rb_array = true; ctx->needs_poly = true; }
-            if (rk == SPINEL_TYPE_RB_HASH) { ctx->needs_rb_hash = true; ctx->needs_poly = true; }
-            if (rk == SPINEL_TYPE_STR_ARRAY) ctx->needs_str_split = true;
-            if (rk == SPINEL_TYPE_SP_STRING) ctx->needs_sp_string = true;
-            if (rk == SPINEL_TYPE_POLY) ctx->needs_poly = true;
-            for (int pi = 0; pi < m->param_count; pi++) {
-                spinel_type_t pk = m->params[pi].type.kind;
-                if (pk == SPINEL_TYPE_HASH) ctx->needs_hash = true;
-                if (pk == SPINEL_TYPE_RB_ARRAY) { ctx->needs_rb_array = true; ctx->needs_poly = true; }
-                if (pk == SPINEL_TYPE_POLY) ctx->needs_poly = true;
-            }
+            SET_NEEDS_FOR_TYPE(m->return_type.kind);
+            for (int pi = 0; pi < m->param_count; pi++)
+                SET_NEEDS_FOR_TYPE(m->params[pi].type.kind);
         }
     }
 
-    /* Detect needs_sp_string: any SP_STRING-typed variable triggers mutable string runtime */
-    for (int i = 0; i < ctx->var_count; i++) {
-        if (ctx->vars[i].type.kind == SPINEL_TYPE_SP_STRING) {
-            ctx->needs_sp_string = true;
-            break;
-        }
-    }
-
-    /* Detect needs_hash: any HASH-typed variable triggers hash runtime */
-    for (int i = 0; i < ctx->var_count; i++) {
-        if (ctx->vars[i].type.kind == SPINEL_TYPE_HASH) {
-            ctx->needs_hash = true;
-            break;
-        }
-    }
+    /* Detect needs from top-level variables */
+    for (int i = 0; i < ctx->var_count; i++)
+        SET_NEEDS_FOR_TYPE(ctx->vars[i].type.kind);
 
     /* Detect needs_proc: any has_block_param function, or PROC-typed variable (from proc {}/Proc.new) */
     for (int i = 0; i < ctx->func_count && !ctx->needs_proc; i++) {
@@ -2796,56 +2822,33 @@ void codegen_program(codegen_ctx_t *ctx, pm_node_t *root) {
             ctx->needs_proc = true;
     }
 
-    /* Detect needs_gc: any non-value-type class, sp_IntArray, or sp_StrIntHash triggers GC */
-    for (int i = 0; i < ctx->class_count && !ctx->needs_gc; i++) {
-        if (!ctx->classes[i].is_value_type)
-            ctx->needs_gc = true;
-    }
-    for (int i = 0; i < ctx->var_count && !ctx->needs_gc; i++) {
-        if (ctx->vars[i].type.kind == SPINEL_TYPE_ARRAY ||
-            ctx->vars[i].type.kind == SPINEL_TYPE_FLOAT_ARRAY ||
-            ctx->vars[i].type.kind == SPINEL_TYPE_HASH)
-            ctx->needs_gc = true;
-    }
-    for (int i = 0; i < ctx->func_count && !ctx->needs_gc; i++) {
+    /* Detect needs from top-level function params, returns, and body variables */
+    for (int i = 0; i < ctx->func_count; i++) {
         func_info_t *f = &ctx->funcs[i];
-        if (f->return_type.kind == SPINEL_TYPE_ARRAY ||
-            f->return_type.kind == SPINEL_TYPE_FLOAT_ARRAY ||
-            f->return_type.kind == SPINEL_TYPE_HASH) { ctx->needs_gc = true; break; }
-        for (int j = 0; j < f->param_count && !ctx->needs_gc; j++)
-            if (f->params[j].type.kind == SPINEL_TYPE_ARRAY ||
-                f->params[j].type.kind == SPINEL_TYPE_FLOAT_ARRAY ||
-                f->params[j].type.kind == SPINEL_TYPE_HASH) ctx->needs_gc = true;
-        /* Also infer function body variables to detect array/hash usage */
-        if (!ctx->needs_gc && f->body_node) {
+        SET_NEEDS_FOR_TYPE(f->return_type.kind);
+        for (int j = 0; j < f->param_count; j++)
+            SET_NEEDS_FOR_TYPE(f->params[j].type.kind);
+        if (f->body_node) {
             int saved_vc = ctx->var_count;
             int saved_sf = ctx->var_scope_floor;
             ctx->var_scope_floor = saved_vc;
             for (int j = 0; j < f->param_count; j++)
                 var_declare(ctx, f->params[j].name, f->params[j].type, false);
             infer_pass(ctx, f->body_node);
-            for (int j = saved_vc; j < ctx->var_count; j++) {
-                if (ctx->vars[j].type.kind == SPINEL_TYPE_ARRAY ||
-                    ctx->vars[j].type.kind == SPINEL_TYPE_FLOAT_ARRAY ||
-                    ctx->vars[j].type.kind == SPINEL_TYPE_HASH) {
-                    ctx->needs_gc = true;
-                    break;
-                }
-            }
+            for (int j = saved_vc; j < ctx->var_count; j++)
+                SET_NEEDS_FOR_TYPE(ctx->vars[j].type.kind);
             ctx->var_count = saved_vc;
             ctx->var_scope_floor = saved_sf;
         }
     }
-    /* Also check class method bodies for array/hash usage */
-    for (int i = 0; i < ctx->class_count && !ctx->needs_gc; i++) {
+    /* Detect needs from class method body variables */
+    for (int i = 0; i < ctx->class_count; i++) {
         class_info_t *cls = &ctx->classes[i];
-        pm_parser_t *saved_gc = ctx->parser;
+        pm_parser_t *saved_p = ctx->parser;
         if (cls->origin_parser) ctx->parser = cls->origin_parser;
-        for (int mi = 0; mi < cls->method_count && !ctx->needs_gc; mi++) {
+        for (int mi = 0; mi < cls->method_count; mi++) {
             method_info_t *m = &cls->methods[mi];
-            if (m->return_type.kind == SPINEL_TYPE_ARRAY ||
-                m->return_type.kind == SPINEL_TYPE_FLOAT_ARRAY ||
-                m->return_type.kind == SPINEL_TYPE_HASH) { ctx->needs_gc = true; break; }
+            SET_NEEDS_FOR_TYPE(m->return_type.kind);
             if (m->body_node) {
                 int saved_vc = ctx->var_count;
                 int saved_sf = ctx->var_scope_floor;
@@ -2853,20 +2856,21 @@ void codegen_program(codegen_ctx_t *ctx, pm_node_t *root) {
                 for (int j = 0; j < m->param_count; j++)
                     var_declare(ctx, m->params[j].name, m->params[j].type, false);
                 infer_pass(ctx, m->body_node);
-                for (int j = saved_vc; j < ctx->var_count; j++) {
-                    if (ctx->vars[j].type.kind == SPINEL_TYPE_ARRAY ||
-                        ctx->vars[j].type.kind == SPINEL_TYPE_FLOAT_ARRAY ||
-                        ctx->vars[j].type.kind == SPINEL_TYPE_HASH) {
-                        ctx->needs_gc = true;
-                        break;
-                    }
-                }
+                for (int j = saved_vc; j < ctx->var_count; j++)
+                    SET_NEEDS_FOR_TYPE(ctx->vars[j].type.kind);
                 ctx->var_count = saved_vc;
                 ctx->var_scope_floor = saved_sf;
             }
         }
-        ctx->parser = saved_gc;
+        ctx->parser = saved_p;
     }
+
+    /* Derive needs_gc from type-specific flags */
+    for (int i = 0; i < ctx->class_count && !ctx->needs_gc; i++)
+        if (!ctx->classes[i].is_value_type) ctx->needs_gc = true;
+    if (ctx->needs_intarray || ctx->needs_floatarray || ctx->needs_hash ||
+        ctx->needs_stringio || ctx->needs_rb_array || ctx->needs_rb_hash)
+        ctx->needs_gc = true;
 
     /* Set up lambda output buffer if needed */
     FILE *lambda_buf = NULL;
