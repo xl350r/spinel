@@ -606,7 +606,7 @@ class Compiler
 
   def pop_scope
     while @scope_names.length > 0
-      top_name = @scope_names[@scope_names.length - 1]
+      top_name = @scope_names.last
       if top_name == "---"
         @scope_names.pop
         @scope_types.pop
@@ -880,7 +880,7 @@ class Compiler
       if body >= 0
         stmts = get_stmts(body)
         if stmts.length > 0
-          return infer_type(stmts[stmts.length - 1])
+          return infer_type(stmts.last)
         end
       end
       return "void"
@@ -895,7 +895,7 @@ class Compiler
           if ibody >= 0
             is = get_stmts(ibody)
             if is.length > 0
-              return infer_type(is[is.length - 1])
+              return infer_type(is.last)
             end
           end
         end
@@ -912,7 +912,7 @@ class Compiler
           if wbody >= 0
             ws = get_stmts(wbody)
             if ws.length > 0
-              return infer_type(ws[ws.length - 1])
+              return infer_type(ws.last)
             end
           end
         end
@@ -930,7 +930,7 @@ class Compiler
       if body >= 0
         stmts = get_stmts(body)
         if stmts.length > 0
-          return infer_type(stmts[stmts.length - 1])
+          return infer_type(stmts.last)
         end
       end
       return "void"
@@ -1481,7 +1481,7 @@ class Compiler
           if bbody >= 0
             bbs = get_stmts(bbody)
             if bbs.length > 0
-              bret = infer_type(bbs[bbs.length - 1])
+              bret = infer_type(bbs.last)
               if bret == "string"
                 return "str_array"
               end
@@ -4629,7 +4629,7 @@ class Compiler
       return rt
     end
     # Last expression
-    infer_type(stmts[stmts.length - 1])
+    infer_type(stmts.last)
   end
 
   def scan_return_type_nid(nid)
@@ -7786,7 +7786,7 @@ class Compiler
       if body >= 0
         stmts = get_stmts(body)
         if stmts.length > 0
-          return compile_expr(stmts[stmts.length - 1])
+          return compile_expr(stmts.last)
         end
       end
       return "0"
@@ -7854,7 +7854,7 @@ class Compiler
     if t == "StatementsNode"
       stmts = parse_id_list(@nd_stmts[nid])
       if stmts.length > 0
-        return compile_expr(stmts[stmts.length - 1])
+        return compile_expr(stmts.last)
       end
       return "0"
     end
@@ -7903,7 +7903,7 @@ class Compiler
                   compile_stmt(ws[i])
                   i = i + 1
                 end
-                emit("    " + tmp + " = " + compile_expr(ws[ws.length - 1]) + ";")
+                emit("    " + tmp + " = " + compile_expr(ws.last) + ";")
               end
             end
           end
@@ -7935,7 +7935,7 @@ class Compiler
                   compile_stmt(ws[i])
                   i = i + 1
                 end
-                emit("    " + tmp + " = " + compile_expr(ws[ws.length - 1]) + ";")
+                emit("    " + tmp + " = " + compile_expr(ws.last) + ";")
               end
             end
           end
@@ -7954,7 +7954,7 @@ class Compiler
               compile_stmt(es[i])
               i = i + 1
             end
-            emit("    " + tmp + " = " + compile_expr(es[es.length - 1]) + ";")
+            emit("    " + tmp + " = " + compile_expr(es.last) + ";")
           end
         end
       end
@@ -9188,7 +9188,7 @@ class Compiler
           if bbody >= 0
             bs = get_stmts(bbody)
             if bs.length > 0
-              bexpr = compile_expr(bs[bs.length - 1])
+              bexpr = compile_expr(bs.last)
             end
           end
           emit("    if (" + bexpr + ") " + tmp + "++;")
@@ -9212,7 +9212,7 @@ class Compiler
           if bbody >= 0
             bs = get_stmts(bbody)
             if bs.length > 0
-              bexpr = compile_expr(bs[bs.length - 1])
+              bexpr = compile_expr(bs.last)
             end
           end
           emit("    mrb_int _v = " + bexpr + ";")
@@ -9236,7 +9236,7 @@ class Compiler
           if bbody >= 0
             bs = get_stmts(bbody)
             if bs.length > 0
-              bexpr = compile_expr(bs[bs.length - 1])
+              bexpr = compile_expr(bs.last)
             end
           end
           emit("    mrb_int _v = " + bexpr + ";")
@@ -9261,7 +9261,7 @@ class Compiler
           if bbody >= 0
             bs = get_stmts(bbody)
             if bs.length > 0
-              bexpr = compile_expr(bs[bs.length - 1])
+              bexpr = compile_expr(bs.last)
             end
           end
           emit("      mrb_int _ka = " + bexpr + ";")
@@ -9343,7 +9343,7 @@ class Compiler
           if bbody >= 0
             bs = get_stmts(bbody)
             if bs.length > 0
-              bexpr = compile_expr(bs[bs.length - 1])
+              bexpr = compile_expr(bs.last)
             end
           end
           emit("    if (" + bexpr + ") " + tmp + "++;")
@@ -9398,7 +9398,7 @@ class Compiler
           if bbody >= 0
             bs = get_stmts(bbody)
             if bs.length > 0
-              bexpr = compile_expr(bs[bs.length - 1])
+              bexpr = compile_expr(bs.last)
             end
           end
           emit("    sp_StrIntHash_set(" + tmp + ", " + rc + "->keys[_i], " + bexpr + ");")
@@ -10227,7 +10227,7 @@ class Compiler
     if body >= 0
       stmts = get_stmts(body)
       if stmts.length > 0
-        then_val = compile_expr(stmts[stmts.length - 1])
+        then_val = compile_expr(stmts.last)
       end
     end
     else_val = "0"
@@ -10238,7 +10238,7 @@ class Compiler
         if eb >= 0
           es = get_stmts(eb)
           if es.length > 0
-            else_val = compile_expr(es[es.length - 1])
+            else_val = compile_expr(es.last)
           end
         end
       else
@@ -10255,7 +10255,7 @@ class Compiler
     if body >= 0
       stmts = get_stmts(body)
       if stmts.length > 0
-        then_val = compile_expr(stmts[stmts.length - 1])
+        then_val = compile_expr(stmts.last)
       end
     end
     "(!" + cond + " ? " + then_val + " : 0)"
@@ -11800,7 +11800,7 @@ class Compiler
       if body >= 0
         bs = get_stmts(body)
         if bs.length > 0
-          bexpr = compile_lambda_body_expr(bs[bs.length - 1], params, captures)
+          bexpr = compile_lambda_body_expr(bs.last, params, captures)
         end
       end
       ec = @nd_else_clause[nid]
@@ -11875,7 +11875,7 @@ class Compiler
         @out = ""
         @lambda_params = param_arr
         @lambda_captures = free_vars
-        bexpr = compile_lambda_body_expr(bs[bs.length - 1], param_arr, free_vars)
+        bexpr = compile_lambda_body_expr(bs.last, param_arr, free_vars)
         body_stmts = @out
         @out = save_out
         @lambda_params = save_params
@@ -12340,7 +12340,7 @@ class Compiler
         if body >= 0
           stmts = get_stmts(body)
           if stmts.length > 0
-            block_ret = infer_type(stmts[stmts.length - 1])
+            block_ret = infer_type(stmts.last)
           end
         end
       end
@@ -12452,7 +12452,7 @@ class Compiler
         if body >= 0
           stmts = get_stmts(body)
           if stmts.length > 0
-            last = stmts[stmts.length - 1]
+            last = stmts.last
             cond = compile_expr(last)
             emit("  if (" + cond + ") sp_IntArray_push(" + tmp_arr + ", lv_" + bp1 + ");")
           end
@@ -12499,7 +12499,7 @@ class Compiler
         if body >= 0
           stmts = get_stmts(body)
           if stmts.length > 0
-            last = stmts[stmts.length - 1]
+            last = stmts.last
             val = compile_expr(last)
             emit("  lv_" + bp1 + " = " + val + ";")
           end
@@ -12531,7 +12531,7 @@ class Compiler
         if body >= 0
           stmts = get_stmts(body)
           if stmts.length > 0
-            last = stmts[stmts.length - 1]
+            last = stmts.last
             cond = compile_expr(last)
             emit("  if (!(" + cond + ")) sp_IntArray_push(" + tmp_arr + ", lv_" + bp1 + ");")
           end
@@ -12565,7 +12565,7 @@ class Compiler
         if body >= 0
           stmts = get_stmts(body)
           if stmts.length > 0
-            last = stmts[stmts.length - 1]
+            last = stmts.last
             cond = compile_expr(last)
             emit("  if (!(" + cond + ")) sp_IntArray_push(" + tmp_arr + ", lv_" + bp1 + ");")
           end
@@ -12624,7 +12624,7 @@ class Compiler
           k = k + 1
         end
         if stmts.length > 0
-          last = stmts[stmts.length - 1]
+          last = stmts.last
           emit("  " + tmp + " = " + compile_expr(last) + ";")
         end
       end
@@ -13451,7 +13451,7 @@ class Compiler
         if body >= 0
           stmts = get_stmts(body)
           if stmts.length > 0
-            last = stmts[stmts.length - 1]
+            last = stmts.last
             val = compile_expr(last)
             emit("  sp_IntArray_push(" + tmp_arr + ", " + val + ");")
           end
@@ -13472,7 +13472,7 @@ class Compiler
         if body >= 0
           stmts = get_stmts(body)
           if stmts.length > 0
-            last = stmts[stmts.length - 1]
+            last = stmts.last
             val = compile_expr(last)
             emit("  sp_StrArray_push(" + tmp_arr + ", " + val + ");")
           end
@@ -13508,7 +13508,7 @@ class Compiler
         if body >= 0
           stmts = get_stmts(body)
           if stmts.length > 0
-            last = stmts[stmts.length - 1]
+            last = stmts.last
             cond = compile_expr(last)
             emit("  if (" + cond + ") sp_IntArray_push(" + tmp_arr + ", lv_" + bp1 + ");")
           end
@@ -13552,7 +13552,7 @@ class Compiler
       compile_stmt(stmts[i])
       i = i + 1
     end
-    last = stmts[stmts.length - 1]
+    last = stmts.last
     if @nd_type[last] == "ReturnNode"
       compile_return_stmt(last)
       return
