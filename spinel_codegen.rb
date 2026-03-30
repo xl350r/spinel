@@ -121,6 +121,7 @@ class Compiler
     # Feature flags
     @needs_gc = 0
     @needs_int_array = 0
+    @needs_float_array = 0
     @needs_str_array = 0
     @needs_str_int_hash = 0
     @needs_str_str_hash = 0
@@ -916,6 +917,20 @@ class Compiler
         end
         return "poly_array"
       end
+      if et == "float"
+        # Check if ALL elements are float
+        all_float = 1
+        k = 1
+        while k < elems.length
+          if infer_type(elems[k]) != "float"
+            all_float = 0
+          end
+          k = k + 1
+        end
+        if all_float == 1
+          return "float_array"
+        end
+      end
       # Check if elements have mixed types
       k = 1
       while k < elems.length
@@ -1372,6 +1387,9 @@ class Compiler
         if rt == "int_array"
           return "int"
         end
+        if rt == "float_array"
+          return "float"
+        end
         if rt == "str_array"
           return "string"
         end
@@ -1398,6 +1416,17 @@ class Compiler
         if @nd_type[recv] == "ConstantReadNode"
           rn = @nd_name[recv]
           if rn == "Array"
+            # Check if fill value is float
+            args_id = @nd_arguments[nid]
+            if args_id >= 0
+              aargs = get_args(args_id)
+              if aargs.length >= 2
+                vt = infer_type(aargs[1])
+                if vt == "float"
+                  return "float_array"
+                end
+              end
+            end
             return "int_array"
           end
           if rn == "Hash"
@@ -1658,6 +1687,9 @@ class Compiler
     if t == "int_array"
       return 1
     end
+    if t == "float_array"
+      return 1
+    end
     if t == "str_array"
       return 1
     end
@@ -1698,6 +1730,9 @@ class Compiler
     end
     if t == "int_array"
       return "sp_IntArray *"
+    end
+    if t == "float_array"
+      return "sp_FloatArray *"
     end
     if t == "str_array"
       return "sp_StrArray *"
@@ -4010,7 +4045,11 @@ class Compiler
         if et == "poly_array"
           @needs_rb_value = 1
         else
-          @needs_int_array = 1
+          if et == "float_array"
+            @needs_float_array = 1
+          else
+            @needs_int_array = 1
+          end
         end
       end
       @needs_gc = 1
@@ -4132,7 +4171,23 @@ class Compiler
             @needs_gc = 1
             rn = @nd_name[@nd_receiver[nid]]
             if rn == "Array"
-              @needs_int_array = 1
+              # Check if Array.new(n, float_val)
+              args_id2 = @nd_arguments[nid]
+              if args_id2 >= 0
+                aargs2 = get_args(args_id2)
+                if aargs2.length >= 2
+                  vt2 = infer_type(aargs2[1])
+                  if vt2 == "float"
+                    @needs_float_array = 1
+                  else
+                    @needs_int_array = 1
+                  end
+                else
+                  @needs_int_array = 1
+                end
+              else
+                @needs_int_array = 1
+              end
             end
             if rn == "Hash"
               @needs_str_int_hash = 1
@@ -4833,6 +4888,13 @@ class Compiler
     if @needs_int_array == 1
       emit_int_array_runtime
     end
+    if @needs_float_array == 1
+      if @needs_gc == 0
+        @needs_gc = 1
+        emit_gc_runtime
+      end
+      emit_float_array_runtime
+    end
     if @needs_str_array == 1
       emit_str_array_runtime
     end
@@ -4976,6 +5038,19 @@ class Compiler
     emit_raw("static sp_IntArray*sp_IntArray_uniq(sp_IntArray*a){sp_IntArray*b=sp_IntArray_new();for(mrb_int i=0;i<a->len;i++){int found=0;for(mrb_int j=0;j<b->len;j++){if(b->data[b->start+j]==a->data[a->start+i]){found=1;break;}}if(!found)sp_IntArray_push(b,a->data[a->start+i]);}return b;}")
     emit_raw("static void sp_IntArray_unshift(sp_IntArray*a,mrb_int v){if(a->start>0){a->start--;a->data[a->start]=v;a->len++;}else{mrb_int e=a->len+1;if(e>a->cap){a->cap=a->cap*2+1;a->data=(mrb_int*)realloc(a->data,sizeof(mrb_int)*a->cap);}memmove(a->data+1,a->data,sizeof(mrb_int)*a->len);a->data[0]=v;a->len++;}}")
     emit_raw("static const char*sp_IntArray_join(sp_IntArray*a,const char*sep){size_t sl=strlen(sep),cap=256;char*buf=(char*)malloc(cap);size_t len=0;for(mrb_int i=0;i<a->len;i++){if(i>0){if(len+sl>=cap){cap*=2;buf=(char*)realloc(buf,cap);}memcpy(buf+len,sep,sl);len+=sl;}char tmp[32];int n=snprintf(tmp,32,\"%lld\",(long long)a->data[a->start+i]);if(len+n>=cap){cap*=2;buf=(char*)realloc(buf,cap);}memcpy(buf+len,tmp,n);len+=n;}buf[len]=0;return buf;}")
+    emit_raw("")
+  end
+
+  def emit_float_array_runtime
+    emit_raw("typedef struct{mrb_float*data;mrb_int len;mrb_int cap;}sp_FloatArray;")
+    emit_raw("static void sp_FloatArray_fin(void*p){free(((sp_FloatArray*)p)->data);}")
+    emit_raw("static sp_FloatArray*sp_FloatArray_new(void){sp_FloatArray*a=(sp_FloatArray*)sp_gc_alloc(sizeof(sp_FloatArray),sp_FloatArray_fin,NULL);a->cap=16;a->data=(mrb_float*)malloc(sizeof(mrb_float)*a->cap);a->len=0;return a;}")
+    emit_raw("static void sp_FloatArray_push(sp_FloatArray*a,mrb_float v){if(a->len>=a->cap){a->cap=a->cap*2+1;a->data=(mrb_float*)realloc(a->data,sizeof(mrb_float)*a->cap);}a->data[a->len++]=v;}")
+    emit_raw("static mrb_float sp_FloatArray_pop(sp_FloatArray*a){return a->data[--a->len];}")
+    emit_raw("static mrb_int sp_FloatArray_length(sp_FloatArray*a){return a->len;}")
+    emit_raw("static mrb_bool sp_FloatArray_empty(sp_FloatArray*a){return a->len==0;}")
+    emit_raw("static mrb_float sp_FloatArray_get(sp_FloatArray*a,mrb_int i){if(i<0)i+=a->len;return a->data[i];}")
+    emit_raw("static void sp_FloatArray_set(sp_FloatArray*a,mrb_int i,mrb_float v){if(i<0)i+=a->len;while(i>=a->cap){a->cap=a->cap*2+1;a->data=(mrb_float*)realloc(a->data,sizeof(mrb_float)*a->cap);}while(i>=a->len){a->data[a->len]=0.0;a->len++;}a->data[i]=v;}")
     emit_raw("")
   end
 
@@ -7363,19 +7438,28 @@ class Compiler
           end
         end
         if cname == "Array"
-          @needs_int_array = 1
           @needs_gc = 1
           args_id = @nd_arguments[nid]
           if args_id >= 0
             aargs = get_args(args_id)
             if aargs.length >= 2
-              # Array.new(n, val)
+              # Array.new(n, val) - check if float
+              vt = infer_type(aargs[1])
+              if vt == "float"
+                @needs_float_array = 1
+                tmp = new_temp
+                emit("  sp_FloatArray *" + tmp + " = sp_FloatArray_new();")
+                emit("  { mrb_int _n = " + compile_expr(aargs[0]) + "; mrb_float _v = " + compile_expr(aargs[1]) + "; for (mrb_int _i = 0; _i < _n; _i++) sp_FloatArray_push(" + tmp + ", _v); }")
+                return tmp
+              end
+              @needs_int_array = 1
               tmp = new_temp
               emit("  sp_IntArray *" + tmp + " = sp_IntArray_new();")
               emit("  { mrb_int _n = " + compile_expr(aargs[0]) + "; mrb_int _v = " + compile_expr(aargs[1]) + "; for (mrb_int _i = 0; _i < _n; _i++) sp_IntArray_push(" + tmp + ", _v); }")
               return tmp
             end
           end
+          @needs_int_array = 1
           return "sp_IntArray_new()"
         end
         if cname == "Hash"
@@ -7975,6 +8059,27 @@ class Compiler
           emit("  }")
           return tmp
         end
+      end
+    end
+    # Float array methods
+    if recv_type == "float_array"
+      if mname == "length"
+        return "sp_FloatArray_length(" + rc + ")"
+      end
+      if mname == "[]"
+        return "sp_FloatArray_get(" + rc + ", " + compile_arg0(nid) + ")"
+      end
+      if mname == "push"
+        return "(sp_FloatArray_push(" + rc + ", " + compile_arg0(nid) + "), 0)"
+      end
+      if mname == "pop"
+        return "sp_FloatArray_pop(" + rc + ")"
+      end
+      if mname == "empty?"
+        return "sp_FloatArray_empty(" + rc + ")"
+      end
+      if mname == "size"
+        return "sp_FloatArray_length(" + rc + ")"
       end
     end
     if recv_type == "str_array"
@@ -10025,6 +10130,10 @@ class Compiler
     end
     if rt == "int_array"
       emit("  sp_IntArray_set(" + rc + ", " + idx + ", " + val + ");")
+      return
+    end
+    if rt == "float_array"
+      emit("  sp_FloatArray_set(" + rc + ", " + idx + ", " + val + ");")
       return
     end
     if rt == "str_array"
