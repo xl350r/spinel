@@ -1,0 +1,65 @@
+#!/usr/bin/env ruby
+# Spinel AOT Compiler - Ruby to C
+#
+# Usage: spinel --source=input.rb --output=output.c
+#        spinel input.rb -o output.c
+#        spinel input.rb                  (output to stdout)
+
+require "tempfile"
+
+dir = File.dirname(File.realpath(__FILE__))
+parse = File.join(dir, "spinel_parse.rb")
+codegen = File.join(dir, "spinel_codegen.rb")
+
+source = nil
+output = nil
+
+i = 0
+while i < ARGV.length
+  arg = ARGV[i]
+  if arg.start_with?("--source=")
+    source = arg.sub("--source=", "")
+  elsif arg.start_with?("--output=")
+    output = arg.sub("--output=", "")
+  elsif arg == "-o" && i + 1 < ARGV.length
+    i += 1
+    output = ARGV[i]
+  elsif arg.end_with?(".rb") && source.nil?
+    source = arg
+  end
+  i += 1
+end
+
+unless source
+  $stderr.puts "Usage: spinel [--source=]input.rb [--output=|-o output.c]"
+  exit 1
+end
+
+unless File.exist?(source)
+  $stderr.puts "spinel: #{source}: No such file"
+  exit 1
+end
+
+# Parse → AST → Codegen in one pipeline
+tmp = Tempfile.new(["spinel_ast", ".txt"])
+begin
+  system("ruby", parse, source, out: tmp.path)
+  unless $?.success?
+    $stderr.puts "spinel: parse failed"
+    exit 1
+  end
+
+  if output
+    system("ruby", codegen, tmp.path, output)
+    unless $?.success?
+      $stderr.puts "spinel: codegen failed"
+      exit 1
+    end
+    $stderr.puts "Wrote #{output}"
+  else
+    system("ruby", codegen, tmp.path)
+  end
+ensure
+  tmp.close
+  tmp.unlink
+end

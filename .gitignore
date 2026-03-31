@@ -3,20 +3,11 @@
 *.swo
 .DS_Store
 *.o
-*.a
-*.so
-*.dylib
 *.pbm
 
-# Build outputs
-/spinel
+# Compiled outputs
+*.c.out
 /mandelbrot
-/mandelbrot_aot.c
-/mandelbrot_dbg
 
-# Dependencies (fetched by `make deps`)
-/vendor/prism/
-
-# Claude Code local settings
-.claude/
-spinel_dbg
+# Temp files
+/tmp/
