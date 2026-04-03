@@ -6537,7 +6537,7 @@ class Compiler
     emit_raw("static inline int sp_gc_bucket(size_t sz){int b=(int)(sz/16);return b<SP_GC_NBUCKETS?b:SP_GC_NBUCKETS-1;}")
     emit_raw("static void sp_gc_collect(void){sp_gc_mark_all();sp_gc_hdr**pp=&sp_gc_heap;sp_gc_bytes=0;while(*pp){sp_gc_hdr*h=*pp;if(!h->marked){*pp=h->next;if(h->finalize)h->finalize((char*)h+sizeof(sp_gc_hdr));int b=sp_gc_bucket(h->size);h->next=sp_gc_buckets[b];sp_gc_buckets[b]=h;}else{h->marked=0;sp_gc_bytes+=h->size;pp=&h->next;}}}")
     emit_raw("static size_t sp_gc_threshold_init=256*1024;")
-    emit_raw("static void*sp_gc_alloc(size_t sz,void(*fin)(void*),void(*scn)(void*)){if(sp_gc_bytes>sp_gc_threshold){size_t before=sp_gc_bytes;sp_gc_collect();size_t freed=before-sp_gc_bytes;if(freed<before/4){sp_gc_threshold=before*2;}else if(sp_gc_bytes>0){sp_gc_threshold=sp_gc_bytes*4;if(sp_gc_threshold<sp_gc_threshold_init)sp_gc_threshold=sp_gc_threshold_init;}else{sp_gc_threshold=sp_gc_threshold_init;}}size_t need=sizeof(sp_gc_hdr)+sz;int b=sp_gc_bucket(need);sp_gc_hdr*h=NULL;if(sp_gc_buckets[b]&&sp_gc_buckets[b]->size==need){h=sp_gc_buckets[b];sp_gc_buckets[b]=h->next;memset((char*)h+sizeof(sp_gc_hdr),0,sz);}if(!h){h=(sp_gc_hdr*)calloc(1,need);}h->finalize=fin;h->scan=scn;h->size=need;h->marked=0;h->next=sp_gc_heap;sp_gc_heap=h;sp_gc_bytes+=need;return(char*)h+sizeof(sp_gc_hdr);}")
+    emit_raw("static void*sp_gc_alloc(size_t sz,void(*fin)(void*),void(*scn)(void*)){if(sp_gc_bytes>sp_gc_threshold){size_t before=sp_gc_bytes;sp_gc_collect();size_t freed=before-sp_gc_bytes;if(freed<before/4){sp_gc_threshold=before*2;}else if(sp_gc_bytes>0){sp_gc_threshold=sp_gc_bytes*4;if(sp_gc_threshold<sp_gc_threshold_init)sp_gc_threshold=sp_gc_threshold_init;}else{sp_gc_threshold=sp_gc_threshold_init;}}size_t need=sizeof(sp_gc_hdr)+sz;int b=sp_gc_bucket(need);sp_gc_hdr*h=NULL;if(sp_gc_buckets[b]&&sp_gc_buckets[b]->size==need){h=sp_gc_buckets[b];sp_gc_buckets[b]=h->next;}if(!h){h=(sp_gc_hdr*)calloc(1,need);}h->finalize=fin;h->scan=scn;h->size=need;h->marked=0;h->next=sp_gc_heap;sp_gc_heap=h;sp_gc_bytes+=need;return(char*)h+sizeof(sp_gc_hdr);}")
     emit_raw("")
   end
 
@@ -7692,7 +7692,7 @@ class Compiler
         emit_raw("static sp_" + cname + " *sp_" + cname + "_new(" + constructor_params_decl(i) + ");")
       end
       if init_idx >= 0
-        emit_raw("static void sp_" + cname + "_initialize(sp_" + cname + " *self" + init_params_decl(i) + ");")
+        emit_raw("static inline void sp_" + cname + "_initialize(sp_" + cname + " *self" + init_params_decl(i) + ");")
       end
       # Instance methods
       mnames = @cls_meth_names[i].split(";")
@@ -8034,7 +8034,7 @@ class Compiler
       emit_raw("static sp_" + cname + " sp_" + cname + "_new(" + constructor_params_decl(ci) + ") {")
       emit_raw("  sp_" + cname + " self = {0};")
     else
-      emit_raw("static sp_" + cname + " *sp_" + cname + "_new(" + constructor_params_decl(ci) + ") {")
+      emit_raw("static inline sp_" + cname + " *sp_" + cname + "_new(" + constructor_params_decl(ci) + ") {")
       emit_raw("  SP_GC_SAVE();")
       scan_fn = "NULL"
       if class_has_ptr_ivars(ci) == 1
@@ -8190,7 +8190,7 @@ class Compiler
     if init_idx >= 0
       saved_vt = @cls_is_value_type[ci]
       @cls_is_value_type[ci] = 0
-      emit_raw("static void sp_" + cname + "_initialize(sp_" + cname + " *self" + init_params_decl(ci) + ") {")
+      emit_raw("static inline void sp_" + cname + "_initialize(sp_" + cname + " *self" + init_params_decl(ci) + ") {")
       bodies = @cls_meth_bodies[ci].split(";")
       bid = -1
       if init_idx < bodies.length
