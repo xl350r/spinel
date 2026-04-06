@@ -5262,6 +5262,9 @@ typedef struct sp_Bigint {
   mpz_t mpz;
 } sp_Bigint;
 
+/* GC integration: use Spinel's GC allocator when available */
+extern void *sp_gc_alloc(size_t sz, void(*fin)(void*), void(*scn)(void*)) __attribute__((weak));
+
 static mpz_ctx_t sp_mpz_ctx_storage;
 static mpz_ctx_t *sp_mpz_ctx = NULL;
 
@@ -5274,16 +5277,27 @@ static void sp_bigint_init_ctx(void) {
   }
 }
 
-sp_Bigint *sp_bigint_new_int(int64_t v) {
+static void sp_bigint_finalizer(void *p) {
+  sp_Bigint *b = (sp_Bigint*)p;
+  mpz_clear(sp_mpz_ctx, &b->mpz);
+}
+
+static sp_Bigint *sp_bigint_alloc(void) {
   sp_bigint_init_ctx();
-  sp_Bigint *b = (sp_Bigint*)malloc(sizeof(sp_Bigint));
+  if (sp_gc_alloc) {
+    return (sp_Bigint*)sp_gc_alloc(sizeof(sp_Bigint), sp_bigint_finalizer, NULL);
+  }
+  return (sp_Bigint*)calloc(1, sizeof(sp_Bigint));
+}
+
+sp_Bigint *sp_bigint_new_int(int64_t v) {
+  sp_Bigint *b = sp_bigint_alloc();
   mpz_init_set_int(sp_mpz_ctx, &b->mpz, (mrb_int)v);
   return b;
 }
 
 sp_Bigint *sp_bigint_new_str(const char *s, int base) {
-  sp_bigint_init_ctx();
-  sp_Bigint *b = (sp_Bigint*)malloc(sizeof(sp_Bigint));
+  sp_Bigint *b = sp_bigint_alloc();
   mpz_init(sp_mpz_ctx, &b->mpz);
   mpz_init_set_str(sp_mpz_ctx, &b->mpz, s, (mrb_int)strlen(s), base);
   return b;
@@ -5292,47 +5306,47 @@ sp_Bigint *sp_bigint_new_str(const char *s, int base) {
 void sp_bigint_free(sp_Bigint *b) {
   if (b) {
     mpz_clear(sp_mpz_ctx, &b->mpz);
-    free(b);
+    if (!sp_gc_alloc) free(b);
   }
 }
 
 sp_Bigint *sp_bigint_add(sp_Bigint *a, sp_Bigint *b) {
-  sp_Bigint *r = (sp_Bigint*)malloc(sizeof(sp_Bigint));
+  sp_Bigint *r = sp_bigint_alloc();
   mpz_init(sp_mpz_ctx, &r->mpz);
   mpz_add(sp_mpz_ctx, &r->mpz, &a->mpz, &b->mpz);
   return r;
 }
 
 sp_Bigint *sp_bigint_sub(sp_Bigint *a, sp_Bigint *b) {
-  sp_Bigint *r = (sp_Bigint*)malloc(sizeof(sp_Bigint));
+  sp_Bigint *r = sp_bigint_alloc();
   mpz_init(sp_mpz_ctx, &r->mpz);
   mpz_sub(sp_mpz_ctx, &r->mpz, &a->mpz, &b->mpz);
   return r;
 }
 
 sp_Bigint *sp_bigint_mul(sp_Bigint *a, sp_Bigint *b) {
-  sp_Bigint *r = (sp_Bigint*)malloc(sizeof(sp_Bigint));
+  sp_Bigint *r = sp_bigint_alloc();
   mpz_init(sp_mpz_ctx, &r->mpz);
   mpz_mul(sp_mpz_ctx, &r->mpz, &a->mpz, &b->mpz);
   return r;
 }
 
 sp_Bigint *sp_bigint_div(sp_Bigint *a, sp_Bigint *b) {
-  sp_Bigint *r = (sp_Bigint*)malloc(sizeof(sp_Bigint));
+  sp_Bigint *r = sp_bigint_alloc();
   mpz_init(sp_mpz_ctx, &r->mpz);
   mpz_mdiv(sp_mpz_ctx, &r->mpz, &a->mpz, &b->mpz);
   return r;
 }
 
 sp_Bigint *sp_bigint_mod(sp_Bigint *a, sp_Bigint *b) {
-  sp_Bigint *r = (sp_Bigint*)malloc(sizeof(sp_Bigint));
+  sp_Bigint *r = sp_bigint_alloc();
   mpz_init(sp_mpz_ctx, &r->mpz);
   mpz_mmod(sp_mpz_ctx, &r->mpz, &a->mpz, &b->mpz);
   return r;
 }
 
 sp_Bigint *sp_bigint_pow(sp_Bigint *base, int64_t exp) {
-  sp_Bigint *r = (sp_Bigint*)malloc(sizeof(sp_Bigint));
+  sp_Bigint *r = sp_bigint_alloc();
   mpz_init(sp_mpz_ctx, &r->mpz);
   mpz_pow(sp_mpz_ctx, &r->mpz, &base->mpz, exp);
   return r;
