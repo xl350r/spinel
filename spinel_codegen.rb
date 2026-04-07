@@ -2497,6 +2497,17 @@ class Compiler
     "gv_" + name
   end
 
+  # ---- Array type helpers ----
+  def array_c_prefix(t)
+    if t == "str_array"
+      return "StrArray"
+    end
+    if t == "float_array"
+      return "FloatArray"
+    end
+    "IntArray"
+  end
+
   # ---- Collection pass ----
   def collect_all
     root = @root_id
@@ -13693,19 +13704,10 @@ class Compiler
         ct = infer_type(coll)
         rc = compile_expr(coll)
         tmp = new_temp
-        if ct == "int_array"
-          emit("  for (mrb_int " + tmp + " = 0; " + tmp + " < sp_IntArray_length(" + rc + "); " + tmp + "++) {")
-          emit("    lv_" + vname + " = sp_IntArray_get(" + rc + ", " + tmp + ");")
-        elsif ct == "str_array"
-          emit("  for (mrb_int " + tmp + " = 0; " + tmp + " < sp_StrArray_length(" + rc + "); " + tmp + "++) {")
-          emit("    lv_" + vname + " = sp_StrArray_get(" + rc + ", " + tmp + ");")
-        elsif ct == "float_array"
-          emit("  for (mrb_int " + tmp + " = 0; " + tmp + " < sp_FloatArray_length(" + rc + "); " + tmp + "++) {")
-          emit("    lv_" + vname + " = sp_FloatArray_get(" + rc + ", " + tmp + ");")
-        else
-          emit("  for (mrb_int " + tmp + " = 0; " + tmp + " < sp_IntArray_length(" + rc + "); " + tmp + "++) {")
-          emit("    lv_" + vname + " = sp_IntArray_get(" + rc + ", " + tmp + ");")
-        end
+        pfx = array_c_prefix(ct)
+        emit("  for (mrb_int " + tmp + " = 0; " + tmp + " < sp_" + pfx + "_length(" + rc + "); " + tmp + "++) {")
+        emit("    lv_" + vname + " = sp_" + pfx + "_get(" + rc + ", " + tmp + ");")
+
         @indent = @indent + 1
         compile_stmts_body(@nd_body[nid])
         @indent = @indent - 1
@@ -15676,23 +15678,10 @@ class Compiler
       bp2 = "_idx"
     end
     tmp = new_temp
-    if rt == "int_array"
-      emit("  for (mrb_int " + tmp + " = 0; " + tmp + " < sp_IntArray_length(" + rc + "); " + tmp + "++) {")
-      emit("    lv_" + bp1 + " = sp_IntArray_get(" + rc + ", " + tmp + ");")
-      emit("    lv_" + bp2 + " = " + tmp + ";")
-    elsif rt == "str_array"
-      emit("  for (mrb_int " + tmp + " = 0; " + tmp + " < sp_StrArray_length(" + rc + "); " + tmp + "++) {")
-      emit("    lv_" + bp1 + " = sp_StrArray_get(" + rc + ", " + tmp + ");")
-      emit("    lv_" + bp2 + " = " + tmp + ";")
-    elsif rt == "float_array"
-      emit("  for (mrb_int " + tmp + " = 0; " + tmp + " < sp_FloatArray_length(" + rc + "); " + tmp + "++) {")
-      emit("    lv_" + bp1 + " = sp_FloatArray_get(" + rc + ", " + tmp + ");")
-      emit("    lv_" + bp2 + " = " + tmp + ";")
-    else
-      emit("  for (mrb_int " + tmp + " = 0; " + tmp + " < sp_IntArray_length(" + rc + "); " + tmp + "++) {")
-      emit("    lv_" + bp1 + " = sp_IntArray_get(" + rc + ", " + tmp + ");")
-      emit("    lv_" + bp2 + " = " + tmp + ";")
-    end
+    pfx = array_c_prefix(rt)
+    emit("  for (mrb_int " + tmp + " = 0; " + tmp + " < sp_" + pfx + "_length(" + rc + "); " + tmp + "++) {")
+    emit("    lv_" + bp1 + " = sp_" + pfx + "_get(" + rc + ", " + tmp + ");")
+    emit("    lv_" + bp2 + " = " + tmp + ";")
     @indent = @indent + 1
     compile_stmts_body(@nd_body[@nd_block[nid]])
     @indent = @indent - 1
@@ -15713,22 +15702,12 @@ class Compiler
       bp1 = "_x"
     end
 
-    if rt == "int_array"
+    if rt == "int_array" || rt == "str_array" || rt == "float_array"
       tmp = new_temp
-      emit("  for (mrb_int " + tmp + " = 0; " + tmp + " < sp_IntArray_length(" + rc + "); " + tmp + "++) {")
+      pfx = array_c_prefix(rt)
+      emit("  for (mrb_int " + tmp + " = 0; " + tmp + " < sp_" + pfx + "_length(" + rc + "); " + tmp + "++) {")
       if has_bp == 1
-        emit("    lv_" + bp1 + " = sp_IntArray_get(" + rc + ", " + tmp + ");")
-      end
-      @indent = @indent + 1
-      compile_stmts_body(@nd_body[@nd_block[nid]])
-      @indent = @indent - 1
-      emit("  }")
-    end
-    if rt == "str_array"
-      tmp = new_temp
-      emit("  for (mrb_int " + tmp + " = 0; " + tmp + " < sp_StrArray_length(" + rc + "); " + tmp + "++) {")
-      if has_bp == 1
-        emit("    lv_" + bp1 + " = sp_StrArray_get(" + rc + ", " + tmp + ");")
+        emit("    lv_" + bp1 + " = sp_" + pfx + "_get(" + rc + ", " + tmp + ");")
       end
       @indent = @indent + 1
       compile_stmts_body(@nd_body[@nd_block[nid]])
