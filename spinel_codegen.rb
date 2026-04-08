@@ -11278,6 +11278,10 @@ class Compiler
     if mname == "<"
       lt = infer_type(recv)
       if lt == "string"
+        cc = try_char_cmp(nid, "<")
+        if cc != ""
+          return cc
+        end
         return "(strcmp(" + compile_expr(recv) + ", " + compile_arg0(nid) + ") < 0)"
       end
       return "(" + compile_expr(recv) + " < " + compile_arg0(nid) + ")"
@@ -11285,6 +11289,10 @@ class Compiler
     if mname == ">"
       lt = infer_type(recv)
       if lt == "string"
+        cc = try_char_cmp(nid, ">")
+        if cc != ""
+          return cc
+        end
         return "(strcmp(" + compile_expr(recv) + ", " + compile_arg0(nid) + ") > 0)"
       end
       if lt == "poly"
@@ -11296,6 +11304,10 @@ class Compiler
     if mname == "<="
       lt = infer_type(recv)
       if lt == "string"
+        cc = try_char_cmp(nid, "<=")
+        if cc != ""
+          return cc
+        end
         return "(strcmp(" + compile_expr(recv) + ", " + compile_arg0(nid) + ") <= 0)"
       end
       return "(" + compile_expr(recv) + " <= " + compile_arg0(nid) + ")"
@@ -11303,6 +11315,10 @@ class Compiler
     if mname == ">="
       lt = infer_type(recv)
       if lt == "string"
+        cc = try_char_cmp(nid, ">=")
+        if cc != ""
+          return cc
+        end
         return "(strcmp(" + compile_expr(recv) + ", " + compile_arg0(nid) + ") >= 0)"
       end
       return "(" + compile_expr(recv) + " >= " + compile_arg0(nid) + ")"
@@ -12706,6 +12722,52 @@ class Compiler
     tmp
   end
 
+  # Try to compile str[i] <op> "c" as direct char comparison
+  # Returns "" if not applicable
+  def try_char_cmp(nid, c_op)
+    recv = @nd_receiver[nid]
+    args_id = @nd_arguments[nid]
+    if args_id < 0
+      return ""
+    end
+    a = get_args(args_id)
+    if a.length == 0
+      return ""
+    end
+    arg_id = a[0]
+    if @nd_type[arg_id] != "StringNode"
+      return ""
+    end
+    lit = @nd_content[arg_id]
+    if lit == ""
+      lit = @nd_unescaped[arg_id]
+    end
+    if lit.length != 1
+      return ""
+    end
+    if @nd_type[recv] != "CallNode" || @nd_name[recv] != "[]"
+      return ""
+    end
+    sr = @nd_receiver[recv]
+    if sr < 0 || infer_type(sr) != "string"
+      return ""
+    end
+    str_c = compile_expr(sr)
+    idx_c = compile_arg0(recv)
+    ch = lit
+    if lit == "\n"
+      ch = "\\n"
+    elsif lit == "\t"
+      ch = "\\t"
+    elsif lit == "\r"
+      ch = "\\r"
+    elsif lit.ord == 92 || lit.ord == 39
+      # backslash or single quote — skip char optimization
+      return ""
+    end
+    "(" + str_c + "[(mrb_int)" + idx_c + "] " + c_op + " '" + ch + "')"
+  end
+
   def compile_eq(nid, op)
     recv = @nd_receiver[nid]
     lt = infer_type(recv)
@@ -12733,6 +12795,11 @@ class Compiler
         else
           return "(" + lc + " != NULL)"
         end
+      end
+      # Optimize: str[i] == "c" → direct char comparison (no malloc)
+      cc = try_char_cmp(nid, op)
+      if cc != ""
+        return cc
       end
       if op == "=="
         return "(strcmp(" + lc + ", " + rc + ") == 0)"
