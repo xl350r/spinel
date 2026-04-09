@@ -1694,6 +1694,18 @@ class Compiler
     if mname == "keys"
       return "str_array"
     end
+    if mname == "sample"
+      if recv >= 0
+        rt = infer_type(recv)
+        if rt == "str_array"
+          return "string"
+        end
+        if rt == "float_array"
+          return "float"
+        end
+      end
+      return "int"
+    end
     if mname == "values"
       if recv >= 0
         rt = infer_type(recv)
@@ -11936,6 +11948,10 @@ class Compiler
 
   def compile_array_method_expr(nid, mname, rc, recv_type)
     # Common array methods (all array types)
+    if mname == "sample"
+      pfx = array_c_prefix(recv_type)
+      return "sp_" + pfx + "_get(" + rc + ", rand() % sp_" + pfx + "_length(" + rc + "))"
+    end
     if mname == "any?" && @nd_block[nid] < 0
       pfx = array_c_prefix(recv_type)
       return "(sp_" + pfx + "_length(" + rc + ") > 0)"
