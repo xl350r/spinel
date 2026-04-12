@@ -15259,6 +15259,32 @@ class Compiler
       end
     end
 
+    if mname == "cycle"
+      if @nd_block[nid] >= 0 && recv >= 0
+        old = @in_loop
+        @in_loop = 1
+        rt = infer_type(recv)
+        rc = compile_expr(recv)
+        n = compile_arg0(nid)
+        bp1 = get_block_param(nid, 0)
+        if bp1 == ""
+          bp1 = "_x"
+        end
+        pfx = array_c_prefix(rt)
+        tmp_c = new_temp
+        tmp_i = new_temp
+        emit("  for (mrb_int " + tmp_c + " = 0; " + tmp_c + " < " + n + "; " + tmp_c + "++)")
+        emit("  for (mrb_int " + tmp_i + " = 0; " + tmp_i + " < sp_" + pfx + "_length(" + rc + "); " + tmp_i + "++) {")
+        emit("    lv_" + bp1 + " = sp_" + pfx + "_get(" + rc + ", " + tmp_i + ");")
+        @indent = @indent + 1
+        compile_stmts_body(@nd_body[@nd_block[nid]])
+        @indent = @indent - 1
+        emit("  }")
+        @in_loop = old
+        return 1
+      end
+    end
+
     # scan with block: str.scan(/re/) { |m| ... }
     if mname == "scan"
       if @nd_block[nid] >= 0
