@@ -172,6 +172,7 @@ static const char*sp_str_swapcase(const char*s){size_t l=strlen(s);char*r=(char*
 static const char*sp_str_delete_prefix(const char*s,const char*p){size_t sl=strlen(s),pl=strlen(p);if(pl<=sl&&memcmp(s,p,pl)==0){char*r=(char*)malloc(sl-pl+1);memcpy(r,s+pl,sl-pl+1);return r;}char*r=(char*)malloc(sl+1);memcpy(r,s,sl+1);return r;}
 static const char*sp_str_delete_suffix(const char*s,const char*p){size_t sl=strlen(s),pl=strlen(p);if(pl<=sl&&memcmp(s+sl-pl,p,pl)==0){char*r=(char*)malloc(sl-pl+1);memcpy(r,s,sl-pl);r[sl-pl]=0;return r;}char*r=(char*)malloc(sl+1);memcpy(r,s,sl+1);return r;}
 static const char*sp_gets(void){char buf[4096];if(!fgets(buf,sizeof(buf),stdin))return NULL;size_t l=strlen(buf);char*r=(char*)malloc(l+1);memcpy(r,buf,l+1);return r;}
+static sp_StrArray*sp_readlines(void){sp_StrArray*a=sp_StrArray_new();char buf[4096];while(fgets(buf,sizeof(buf),stdin)){size_t l=strlen(buf);char*r=(char*)malloc(l+1);memcpy(r,buf,l+1);sp_StrArray_push(a,r);}return a;}
 static const char*sp_str_strip(const char*s){while(*s&&isspace((unsigned char)*s))s++;size_t l=strlen(s);while(l>0&&isspace((unsigned char)s[l-1]))l--;char*r=(char*)malloc(l+1);memcpy(r,s,l);r[l]=0;return r;}
 static const char*sp_str_chomp(const char*s){size_t l=strlen(s);while(l>0&&(s[l-1]=='\n'||s[l-1]=='\r'))l--;char*r=(char*)malloc(l+1);memcpy(r,s,l);r[l]=0;return r;}
 static mrb_bool sp_str_include(const char*s,const char*sub){return strstr(s,sub)!=NULL;}

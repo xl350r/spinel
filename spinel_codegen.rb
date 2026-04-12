@@ -1656,6 +1656,9 @@ class Compiler
     if mname == "gets" || mname == "readline"
       return "string"
     end
+    if mname == "readlines"
+      return "str_array"
+    end
     if mname == "gsub"
       return "string"
     end
@@ -11013,6 +11016,11 @@ class Compiler
     end
     if mname == "gets" || mname == "readline"
       return "sp_gets()"
+    end
+    if mname == "readlines"
+      @needs_str_array = 1
+      @needs_gc = 1
+      return "sp_readlines()"
     end
     if mname == "rand"
       args_id = @nd_arguments[nid]
