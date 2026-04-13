@@ -1840,6 +1840,12 @@ class Compiler
       return "int"
     end
     if mname == "divmod"
+      if recv >= 0
+        rt = infer_type(recv)
+        if rt == "float"
+          return "tuple:int,float"
+        end
+      end
       return "tuple:int,int"
     end
     if mname == "minmax"
@@ -12615,6 +12621,18 @@ class Compiler
     end
     if mname == "fdiv"
       return "((" + rc + ") / (mrb_float)" + compile_arg0(nid) + ")"
+    end
+    if mname == "divmod"
+      tt = "tuple:int,float"
+      register_tuple_type(tt)
+      @needs_gc = 1
+      tname = tuple_c_name(tt)
+      arg = compile_arg0(nid)
+      tmp = new_temp
+      emit("  " + tname + " *" + tmp + " = (" + tname + " *)sp_gc_alloc(sizeof(" + tname + "), NULL, NULL);")
+      emit("  " + tmp + "->_0 = (mrb_int)floor(" + rc + " / " + arg + ");")
+      emit("  " + tmp + "->_1 = " + rc + " - " + tmp + "->_0 * " + arg + ";")
+      return tmp
     end
     ""
   end
