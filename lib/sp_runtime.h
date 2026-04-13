@@ -38,7 +38,8 @@ static inline mrb_int sp_imod(mrb_int a, mrb_int b) {
 
 static mrb_int sp_gcd(mrb_int a,mrb_int b){if(a<0)a=-a;if(b<0)b=-b;while(b){mrb_int t=b;b=a%b;a=t;}return a;}
 static mrb_int sp_int_clamp(mrb_int v,mrb_int lo,mrb_int hi){return v<lo?lo:v>hi?hi:v;}
-static const char*sp_int_chr(mrb_int n){char*s=(char*)malloc(2);s[0]=(char)n;s[1]=0;return s;}
+static inline char *sp_str_arena_alloc(size_t n);  /* forward declaration */
+static const char*sp_int_chr(mrb_int n){char*s=(char*)sp_str_arena_alloc(2);s[0]=(char)n;s[1]=0;return s;}
 typedef struct{mrb_int first;mrb_int last;}sp_Range;
 static sp_Range sp_range_new(mrb_int f,mrb_int l){sp_Range r;r.first=f;r.last=l;return r;}
 
@@ -166,48 +167,79 @@ static sp_StrArray*sp_StrStrHash_values(sp_StrStrHash*h){sp_StrArray*a=sp_StrArr
 static sp_StrStrHash*sp_StrStrHash_invert(sp_StrStrHash*h){sp_StrStrHash*r=sp_StrStrHash_new();for(mrb_int i=0;i<h->len;i++){const char*k=h->order[i];sp_StrStrHash_set(r,sp_StrStrHash_get(h,k),k);}return r;}
 static void sp_StrStrHash_update(sp_StrStrHash*a,sp_StrStrHash*b){for(mrb_int i=0;i<b->len;i++)sp_StrStrHash_set(a,b->order[i],sp_StrStrHash_get(b,b->order[i]));}
 
-static const char*sp_str_concat(const char*a,const char*b){size_t la=strlen(a),lb=strlen(b);char*r=(char*)malloc(la+lb+1);memcpy(r,a,la);memcpy(r+la,b,lb+1);return r;}
-static const char*sp_int_to_s(mrb_int n){char*b=(char*)malloc(32);snprintf(b,32,"%lld",(long long)n);return b;}
-static const char*sp_int_to_s_base(mrb_int n,mrb_int base){if(base<2||base>36)base=10;char*b=(char*)malloc(72);char tmp[72];int i=0;int neg=0;uint64_t u;if(n<0){neg=1;u=(uint64_t)(-(n+1))+1;}else{u=(uint64_t)n;}if(u==0){tmp[i++]='0';}else{while(u>0){mrb_int d=u%base;tmp[i++]=d<10?'0'+d:'a'+d-10;u/=base;}}int j=0;if(neg)b[j++]='-';while(i>0)b[j++]=tmp[--i];b[j]=0;return b;}
-static const char*sp_float_to_s(mrb_float f){char*b=(char*)malloc(64);snprintf(b,64,"%g",f);return b;}
-static const char*sp_str_upcase(const char*s){size_t l=strlen(s);char*r=(char*)malloc(l+1);for(size_t i=0;i<=l;i++)r[i]=toupper((unsigned char)s[i]);return r;}
-static const char*sp_str_downcase(const char*s){size_t l=strlen(s);char*r=(char*)malloc(l+1);for(size_t i=0;i<=l;i++)r[i]=tolower((unsigned char)s[i]);return r;}
-static const char*sp_str_swapcase(const char*s){size_t l=strlen(s);char*r=(char*)malloc(l+1);for(size_t i=0;i<=l;i++){unsigned char c=(unsigned char)s[i];if(isupper(c))r[i]=tolower(c);else if(islower(c))r[i]=toupper(c);else r[i]=s[i];}return r;}
-static const char*sp_str_delete_prefix(const char*s,const char*p){size_t sl=strlen(s),pl=strlen(p);if(pl<=sl&&memcmp(s,p,pl)==0){char*r=(char*)malloc(sl-pl+1);memcpy(r,s+pl,sl-pl+1);return r;}char*r=(char*)malloc(sl+1);memcpy(r,s,sl+1);return r;}
-static const char*sp_str_substr(const char*s,mrb_int start,mrb_int len){if(len<=0){char*r=(char*)malloc(1);r[0]=0;return r;}char*r=(char*)malloc(len+1);memcpy(r,s+start,len);r[len]=0;return r;}
-static const char*sp_str_delete_suffix(const char*s,const char*p){size_t sl=strlen(s),pl=strlen(p);if(pl<=sl&&memcmp(s+sl-pl,p,pl)==0){char*r=(char*)malloc(sl-pl+1);memcpy(r,s,sl-pl);r[sl-pl]=0;return r;}char*r=(char*)malloc(sl+1);memcpy(r,s,sl+1);return r;}
-static const char*sp_str_succ(const char*s){size_t l=strlen(s);if(l==0){char*r=(char*)malloc(1);r[0]=0;return r;}char*r=(char*)malloc(l+2);memcpy(r,s,l+1);mrb_int i=(mrb_int)l-1;while(i>=0){unsigned char c=(unsigned char)r[i];if(c>='0'&&c<'9'){r[i]=c+1;return r;}if(c=='9'){r[i]='0';i--;continue;}if(c>='a'&&c<'z'){r[i]=c+1;return r;}if(c=='z'){r[i]='a';i--;continue;}if(c>='A'&&c<'Z'){r[i]=c+1;return r;}if(c=='Z'){r[i]='A';i--;continue;}r[i]=c+1;return r;}memmove(r+1,r,l+1);if(r[1]=='0')r[0]='1';else if(r[1]=='a')r[0]='a';else if(r[1]=='A')r[0]='A';else r[0]=r[1];return r;}
-static const char*sp_gets(void){char buf[4096];if(!fgets(buf,sizeof(buf),stdin))return NULL;size_t l=strlen(buf);char*r=(char*)malloc(l+1);memcpy(r,buf,l+1);return r;}
-static sp_StrArray*sp_readlines(void){sp_StrArray*a=sp_StrArray_new();char buf[4096];while(fgets(buf,sizeof(buf),stdin)){size_t l=strlen(buf);char*r=(char*)malloc(l+1);memcpy(r,buf,l+1);sp_StrArray_push(a,r);}return a;}
-static const char*sp_str_strip(const char*s){while(*s&&isspace((unsigned char)*s))s++;size_t l=strlen(s);while(l>0&&isspace((unsigned char)s[l-1]))l--;char*r=(char*)malloc(l+1);memcpy(r,s,l);r[l]=0;return r;}
-static const char*sp_str_chomp(const char*s){size_t l=strlen(s);while(l>0&&(s[l-1]=='\n'||s[l-1]=='\r'))l--;char*r=(char*)malloc(l+1);memcpy(r,s,l);r[l]=0;return r;}
+/* Arena allocator for temporary strings */
+#ifndef SP_STR_ARENA_SIZE
+#define SP_STR_ARENA_SIZE (4*1024*1024)
+static char *sp_str_arena_buf = NULL;
+static size_t sp_str_arena_pos = 0;
+static char **sp_str_arena_pages = NULL;
+static int sp_str_arena_page_count = 0;
+static int sp_str_arena_page_cap = 0;
+static size_t sp_str_arena_total = 0;
+static inline char *sp_str_arena_alloc(size_t n) {
+  if (!sp_str_arena_buf || sp_str_arena_pos + n > SP_STR_ARENA_SIZE) {
+    sp_str_arena_buf = (char*)malloc(SP_STR_ARENA_SIZE);
+    sp_str_arena_pos = 0;
+    if (sp_str_arena_page_count >= sp_str_arena_page_cap) {
+      sp_str_arena_page_cap = sp_str_arena_page_cap ? sp_str_arena_page_cap * 2 : 64;
+      sp_str_arena_pages = (char**)realloc(sp_str_arena_pages, sizeof(char*) * sp_str_arena_page_cap);
+    }
+    sp_str_arena_pages[sp_str_arena_page_count++] = sp_str_arena_buf;
+  }
+  char *r = sp_str_arena_buf + sp_str_arena_pos;
+  sp_str_arena_total += n;
+  sp_str_arena_pos += n;
+  return r;
+}
+static inline void sp_str_arena_reset(void) {
+  for (int i = 0; i < sp_str_arena_page_count; i++) free(sp_str_arena_pages[i]);
+  sp_str_arena_page_count = 0;
+  sp_str_arena_buf = NULL;
+  sp_str_arena_pos = 0;
+}
+static const char*sp_str_concat(const char*a,const char*b){size_t la=strlen(a),lb=strlen(b);char*r=sp_str_arena_alloc(la+lb+1);memcpy(r,a,la);memcpy(r+la,b,lb+1);return r;}
+#endif /* SP_STR_ARENA_SIZE */
+static const char*sp_int_to_s(mrb_int n){char*b=(char*)sp_str_arena_alloc(32);snprintf(b,32,"%lld",(long long)n);return b;}
+static const char*sp_int_to_s_base(mrb_int n,mrb_int base){if(base<2||base>36)base=10;char*b=(char*)sp_str_arena_alloc(72);char tmp[72];int i=0;int neg=0;uint64_t u;if(n<0){neg=1;u=(uint64_t)(-(n+1))+1;}else{u=(uint64_t)n;}if(u==0){tmp[i++]='0';}else{while(u>0){mrb_int d=u%base;tmp[i++]=d<10?'0'+d:'a'+d-10;u/=base;}}int j=0;if(neg)b[j++]='-';while(i>0)b[j++]=tmp[--i];b[j]=0;return b;}
+static const char*sp_float_to_s(mrb_float f){char*b=(char*)sp_str_arena_alloc(64);snprintf(b,64,"%g",f);return b;}
+static const char*sp_str_upcase(const char*s){size_t l=strlen(s);char*r=(char*)sp_str_arena_alloc(l+1);for(size_t i=0;i<=l;i++)r[i]=toupper((unsigned char)s[i]);return r;}
+static const char*sp_str_downcase(const char*s){size_t l=strlen(s);char*r=(char*)sp_str_arena_alloc(l+1);for(size_t i=0;i<=l;i++)r[i]=tolower((unsigned char)s[i]);return r;}
+static const char*sp_str_swapcase(const char*s){size_t l=strlen(s);char*r=(char*)sp_str_arena_alloc(l+1);for(size_t i=0;i<=l;i++){unsigned char c=(unsigned char)s[i];if(isupper(c))r[i]=tolower(c);else if(islower(c))r[i]=toupper(c);else r[i]=s[i];}return r;}
+static const char*sp_str_delete_prefix(const char*s,const char*p){size_t sl=strlen(s),pl=strlen(p);if(pl<=sl&&memcmp(s,p,pl)==0){char*r=(char*)sp_str_arena_alloc(sl-pl+1);memcpy(r,s+pl,sl-pl+1);return r;}char*r=(char*)sp_str_arena_alloc(sl+1);memcpy(r,s,sl+1);return r;}
+static const char*sp_str_substr(const char*s,mrb_int start,mrb_int len){if(len<=0){char*r=(char*)sp_str_arena_alloc(1);r[0]=0;return r;}char*r=(char*)sp_str_arena_alloc(len+1);memcpy(r,s+start,len);r[len]=0;return r;}
+static const char*sp_str_delete_suffix(const char*s,const char*p){size_t sl=strlen(s),pl=strlen(p);if(pl<=sl&&memcmp(s+sl-pl,p,pl)==0){char*r=(char*)sp_str_arena_alloc(sl-pl+1);memcpy(r,s,sl-pl);r[sl-pl]=0;return r;}char*r=(char*)sp_str_arena_alloc(sl+1);memcpy(r,s,sl+1);return r;}
+static const char*sp_str_succ(const char*s){size_t l=strlen(s);if(l==0){char*r=(char*)sp_str_arena_alloc(1);r[0]=0;return r;}char*r=(char*)sp_str_arena_alloc(l+2);memcpy(r,s,l+1);mrb_int i=(mrb_int)l-1;while(i>=0){unsigned char c=(unsigned char)r[i];if(c>='0'&&c<'9'){r[i]=c+1;return r;}if(c=='9'){r[i]='0';i--;continue;}if(c>='a'&&c<'z'){r[i]=c+1;return r;}if(c=='z'){r[i]='a';i--;continue;}if(c>='A'&&c<'Z'){r[i]=c+1;return r;}if(c=='Z'){r[i]='A';i--;continue;}r[i]=c+1;return r;}memmove(r+1,r,l+1);if(r[1]=='0')r[0]='1';else if(r[1]=='a')r[0]='a';else if(r[1]=='A')r[0]='A';else r[0]=r[1];return r;}
+static const char*sp_gets(void){char buf[4096];if(!fgets(buf,sizeof(buf),stdin))return NULL;size_t l=strlen(buf);char*r=(char*)sp_str_arena_alloc(l+1);memcpy(r,buf,l+1);return r;}
+static sp_StrArray*sp_readlines(void){sp_StrArray*a=sp_StrArray_new();char buf[4096];while(fgets(buf,sizeof(buf),stdin)){size_t l=strlen(buf);char*r=(char*)sp_str_arena_alloc(l+1);memcpy(r,buf,l+1);sp_StrArray_push(a,r);}return a;}
+static const char*sp_str_strip(const char*s){while(*s&&isspace((unsigned char)*s))s++;size_t l=strlen(s);while(l>0&&isspace((unsigned char)s[l-1]))l--;char*r=(char*)sp_str_arena_alloc(l+1);memcpy(r,s,l);r[l]=0;return r;}
+static const char*sp_str_chomp(const char*s){size_t l=strlen(s);while(l>0&&(s[l-1]=='\n'||s[l-1]=='\r'))l--;char*r=(char*)sp_str_arena_alloc(l+1);memcpy(r,s,l);r[l]=0;return r;}
 static mrb_bool sp_str_include(const char*s,const char*sub){return strstr(s,sub)!=NULL;}
 static mrb_bool sp_str_start_with(const char*s,const char*p){return strncmp(s,p,strlen(p))==0;}
 static mrb_bool sp_str_end_with(const char*s,const char*suf){size_t ls=strlen(s),lsuf=strlen(suf);if(lsuf>ls)return FALSE;return strcmp(s+ls-lsuf,suf)==0;}
-static sp_StrArray*sp_str_split(const char*s,const char*sep){sp_StrArray*a=sp_StrArray_new();if(*s==0)return a;size_t sl=strlen(sep);if(sl==0){for(size_t i=0;s[i];i++){char*c=(char*)malloc(2);c[0]=s[i];c[1]=0;sp_StrArray_push(a,c);}return a;}const char*p=s;while(1){const char*f=strstr(p,sep);if(!f){char*r=(char*)malloc(strlen(p)+1);strcpy(r,p);sp_StrArray_push(a,r);break;}size_t n=f-p;char*r=(char*)malloc(n+1);memcpy(r,p,n);r[n]=0;sp_StrArray_push(a,r);p=f+sl;}return a;}
+static sp_StrArray*sp_str_split(const char*s,const char*sep){sp_StrArray*a=sp_StrArray_new();if(*s==0)return a;size_t sl=strlen(sep);if(sl==0){for(size_t i=0;s[i];i++){char*c=(char*)sp_str_arena_alloc(2);c[0]=s[i];c[1]=0;sp_StrArray_push(a,c);}return a;}const char*p=s;while(1){const char*f=strstr(p,sep);if(!f){char*r=(char*)sp_str_arena_alloc(strlen(p)+1);strcpy(r,p);sp_StrArray_push(a,r);break;}size_t n=f-p;char*r=(char*)sp_str_arena_alloc(n+1);memcpy(r,p,n);r[n]=0;sp_StrArray_push(a,r);p=f+sl;}return a;}
 static const char*sp_str_gsub(const char*s,const char*pat,const char*rep){size_t pl=strlen(pat),rl=strlen(rep),sl=strlen(s);if(pl==0)return s;size_t cap=sl*2+1;char*out=(char*)malloc(cap);size_t ol=0;const char*p=s;while(*p){const char*f=strstr(p,pat);if(!f){size_t n=strlen(p);if(ol+n>=cap){cap=(ol+n)*2+1;out=(char*)realloc(out,cap);}memcpy(out+ol,p,n);ol+=n;break;}size_t n=f-p;if(ol+n+rl>=cap){cap=(ol+n+rl)*2+1;out=(char*)realloc(out,cap);}memcpy(out+ol,p,n);ol+=n;memcpy(out+ol,rep,rl);ol+=rl;p=f+pl;}out[ol]=0;return out;}
 static mrb_int sp_str_index(const char*s,const char*sub){const char*f=strstr(s,sub);if(!f)return -1;return(mrb_int)(f-s);}
 static char sp_char_cache[256][2];
 static int sp_char_cache_init = 0;
-static const char*sp_str_sub_range(const char*s,mrb_int start,mrb_int len){mrb_int sl=(mrb_int)strlen(s);if(start<0)start+=sl;if(start<0)start=0;if(start>=sl)return"";if(len<0)len=0;if(start+len>sl)len=sl-start;if(len==1){unsigned char c=(unsigned char)s[start];if(!sp_char_cache_init){for(int i=0;i<256;i++){sp_char_cache[i][0]=(char)i;sp_char_cache[i][1]=0;}sp_char_cache_init=1;}return sp_char_cache[c];}char*r=(char*)malloc(len+1);memcpy(r,s+start,len);r[len]=0;return r;}
-static const char*sp_sprintf(const char*fmt,...){char*b=(char*)malloc(4096);va_list ap;va_start(ap,fmt);vsnprintf(b,4096,fmt,ap);va_end(ap);return b;}
-static const char*sp_str_reverse(const char*s){size_t l=strlen(s);char*r=(char*)malloc(l+1);for(size_t i=0;i<l;i++)r[i]=s[l-1-i];r[l]=0;return r;}
-static const char*sp_str_sub(const char*s,const char*pat,const char*rep){const char*f=strstr(s,pat);if(!f)return s;size_t pl=strlen(pat),rl=strlen(rep),sl=strlen(s);char*r=(char*)malloc(sl-pl+rl+1);size_t n=f-s;memcpy(r,s,n);memcpy(r+n,rep,rl);memcpy(r+n+rl,f+pl,sl-n-pl+1);return r;}
-static const char*sp_str_capitalize(const char*s){size_t l=strlen(s);char*r=(char*)malloc(l+1);for(size_t i=0;i<=l;i++)r[i]=tolower((unsigned char)s[i]);if(l>0)r[0]=toupper((unsigned char)r[0]);return r;}
+static const char*sp_str_sub_range(const char*s,mrb_int start,mrb_int len){mrb_int sl=(mrb_int)strlen(s);if(start<0)start+=sl;if(start<0)start=0;if(start>=sl)return"";if(len<0)len=0;if(start+len>sl)len=sl-start;if(len==1){unsigned char c=(unsigned char)s[start];if(!sp_char_cache_init){for(int i=0;i<256;i++){sp_char_cache[i][0]=(char)i;sp_char_cache[i][1]=0;}sp_char_cache_init=1;}return sp_char_cache[c];}char*r=(char*)sp_str_arena_alloc(len+1);memcpy(r,s+start,len);r[len]=0;return r;}
+static const char*sp_sprintf(const char*fmt,...){char*b=(char*)sp_str_arena_alloc(4096);va_list ap;va_start(ap,fmt);vsnprintf(b,4096,fmt,ap);va_end(ap);return b;}
+static const char*sp_str_reverse(const char*s){size_t l=strlen(s);char*r=(char*)sp_str_arena_alloc(l+1);for(size_t i=0;i<l;i++)r[i]=s[l-1-i];r[l]=0;return r;}
+static const char*sp_str_sub(const char*s,const char*pat,const char*rep){const char*f=strstr(s,pat);if(!f)return s;size_t pl=strlen(pat),rl=strlen(rep),sl=strlen(s);char*r=(char*)sp_str_arena_alloc(sl-pl+rl+1);size_t n=f-s;memcpy(r,s,n);memcpy(r+n,rep,rl);memcpy(r+n+rl,f+pl,sl-n-pl+1);return r;}
+static const char*sp_str_capitalize(const char*s){size_t l=strlen(s);char*r=(char*)sp_str_arena_alloc(l+1);for(size_t i=0;i<=l;i++)r[i]=tolower((unsigned char)s[i]);if(l>0)r[0]=toupper((unsigned char)r[0]);return r;}
 static mrb_int sp_str_count(const char*s,const char*chars){mrb_int c=0;for(size_t i=0;s[i];i++){for(size_t j=0;chars[j];j++){if(s[i]==chars[j]){c++;break;}}}return c;}
-static const char*sp_str_repeat(const char*s,mrb_int n){if(n<=0)return"";size_t l=strlen(s);char*r=(char*)malloc(l*n+1);for(mrb_int i=0;i<n;i++)memcpy(r+l*i,s,l);r[l*n]=0;return r;}
+static const char*sp_str_repeat(const char*s,mrb_int n){if(n<=0)return"";size_t l=strlen(s);char*r=(char*)sp_str_arena_alloc(l*n+1);for(mrb_int i=0;i<n;i++)memcpy(r+l*i,s,l);r[l*n]=0;return r;}
 static sp_IntArray*sp_str_bytes(const char*s){sp_IntArray*a=sp_IntArray_new();for(size_t i=0;s[i];i++)sp_IntArray_push(a,(mrb_int)(unsigned char)s[i]);return a;}
-static const char*sp_str_tr(const char*s,const char*from,const char*to){size_t l=strlen(s),fl=strlen(from),tl=strlen(to);char*r=(char*)malloc(l+1);for(size_t i=0;i<l;i++){r[i]=s[i];for(size_t j=0;j<fl;j++){if(s[i]==from[j]){if(j<tl)r[i]=to[j];else if(tl>0)r[i]=to[tl-1];break;}}}r[l]=0;return r;}
-static const char*sp_str_delete(const char*s,const char*chars){size_t l=strlen(s);char*r=(char*)malloc(l+1);size_t n=0;for(size_t i=0;i<l;i++){int found=0;for(size_t j=0;chars[j];j++){if(s[i]==chars[j]){found=1;break;}}if(!found)r[n++]=s[i];}r[n]=0;return r;}
-static const char*sp_str_squeeze(const char*s){size_t l=strlen(s);char*r=(char*)malloc(l+1);size_t n=0;for(size_t i=0;i<l;i++){if(i==0||s[i]!=s[i-1])r[n++]=s[i];}r[n]=0;return r;}
-static const char*sp_str_ljust(const char*s,mrb_int w){size_t l=strlen(s);if((mrb_int)l>=w)return s;char*r=(char*)malloc(w+1);memcpy(r,s,l);memset(r+l,' ',w-l);r[w]=0;return r;}
-static const char*sp_str_rjust(const char*s,mrb_int w){size_t l=strlen(s);if((mrb_int)l>=w)return s;char*r=(char*)malloc(w+1);memset(r,' ',w-l);memcpy(r+w-l,s,l+1);return r;}
-static const char*sp_str_center(const char*s,mrb_int w){size_t l=strlen(s);if((mrb_int)l>=w)return s;mrb_int pad=w-l;mrb_int left=pad/2;mrb_int right=pad-left;char*r=(char*)malloc(w+1);memset(r,' ',left);memcpy(r+left,s,l);memset(r+left+l,' ',right);r[w]=0;return r;}
-static const char*sp_str_ljust2(const char*s,mrb_int w,const char*pad){size_t l=strlen(s);if((mrb_int)l>=w)return s;char*r=(char*)malloc(w+1);memcpy(r,s,l);char pc=pad[0];for(mrb_int i=l;i<w;i++)r[i]=pc;r[w]=0;return r;}
-static const char*sp_str_rjust2(const char*s,mrb_int w,const char*pad){size_t l=strlen(s);if((mrb_int)l>=w)return s;char*r=(char*)malloc(w+1);char pc=pad[0];for(mrb_int i=0;i<w-(mrb_int)l;i++)r[i]=pc;memcpy(r+w-l,s,l+1);return r;}
-static const char*sp_str_lstrip(const char*s){while(*s&&isspace((unsigned char)*s))s++;char*r=(char*)malloc(strlen(s)+1);strcpy(r,s);return r;}
-static const char*sp_str_rstrip(const char*s){size_t l=strlen(s);while(l>0&&isspace((unsigned char)s[l-1]))l--;char*r=(char*)malloc(l+1);memcpy(r,s,l);r[l]=0;return r;}
-static const char*sp_str_dup(const char*s){char*r=(char*)malloc(strlen(s)+1);strcpy(r,s);return r;}
+static const char*sp_str_tr(const char*s,const char*from,const char*to){size_t l=strlen(s),fl=strlen(from),tl=strlen(to);char*r=(char*)sp_str_arena_alloc(l+1);for(size_t i=0;i<l;i++){r[i]=s[i];for(size_t j=0;j<fl;j++){if(s[i]==from[j]){if(j<tl)r[i]=to[j];else if(tl>0)r[i]=to[tl-1];break;}}}r[l]=0;return r;}
+static const char*sp_str_delete(const char*s,const char*chars){size_t l=strlen(s);char*r=(char*)sp_str_arena_alloc(l+1);size_t n=0;for(size_t i=0;i<l;i++){int found=0;for(size_t j=0;chars[j];j++){if(s[i]==chars[j]){found=1;break;}}if(!found)r[n++]=s[i];}r[n]=0;return r;}
+static const char*sp_str_squeeze(const char*s){size_t l=strlen(s);char*r=(char*)sp_str_arena_alloc(l+1);size_t n=0;for(size_t i=0;i<l;i++){if(i==0||s[i]!=s[i-1])r[n++]=s[i];}r[n]=0;return r;}
+static const char*sp_str_ljust(const char*s,mrb_int w){size_t l=strlen(s);if((mrb_int)l>=w)return s;char*r=(char*)sp_str_arena_alloc(w+1);memcpy(r,s,l);memset(r+l,' ',w-l);r[w]=0;return r;}
+static const char*sp_str_rjust(const char*s,mrb_int w){size_t l=strlen(s);if((mrb_int)l>=w)return s;char*r=(char*)sp_str_arena_alloc(w+1);memset(r,' ',w-l);memcpy(r+w-l,s,l+1);return r;}
+static const char*sp_str_center(const char*s,mrb_int w){size_t l=strlen(s);if((mrb_int)l>=w)return s;mrb_int pad=w-l;mrb_int left=pad/2;mrb_int right=pad-left;char*r=(char*)sp_str_arena_alloc(w+1);memset(r,' ',left);memcpy(r+left,s,l);memset(r+left+l,' ',right);r[w]=0;return r;}
+static const char*sp_str_ljust2(const char*s,mrb_int w,const char*pad){size_t l=strlen(s);if((mrb_int)l>=w)return s;char*r=(char*)sp_str_arena_alloc(w+1);memcpy(r,s,l);char pc=pad[0];for(mrb_int i=l;i<w;i++)r[i]=pc;r[w]=0;return r;}
+static const char*sp_str_rjust2(const char*s,mrb_int w,const char*pad){size_t l=strlen(s);if((mrb_int)l>=w)return s;char*r=(char*)sp_str_arena_alloc(w+1);char pc=pad[0];for(mrb_int i=0;i<w-(mrb_int)l;i++)r[i]=pc;memcpy(r+w-l,s,l+1);return r;}
+static const char*sp_str_lstrip(const char*s){while(*s&&isspace((unsigned char)*s))s++;char*r=(char*)sp_str_arena_alloc(strlen(s)+1);strcpy(r,s);return r;}
+static const char*sp_str_rstrip(const char*s){size_t l=strlen(s);while(l>0&&isspace((unsigned char)s[l-1]))l--;char*r=(char*)sp_str_arena_alloc(l+1);memcpy(r,s,l);r[l]=0;return r;}
+static const char*sp_str_dup(const char*s){char*r=(char*)sp_str_arena_alloc(strlen(s)+1);strcpy(r,s);return r;}
 
 typedef struct{char*data;int64_t len;int64_t cap;}sp_String;
 static void sp_String_fin(void*p){free(((sp_String*)p)->data);}
@@ -235,7 +267,7 @@ static void sp_re_set_captures(const char *str, int *caps, int ncaps) {
   for (int i = 1; i < ncaps && i < 10; i++) {
     if (caps[i*2] >= 0 && caps[i*2+1] >= 0) {
       int len = caps[i*2+1] - caps[i*2];
-      char *buf = (char*)malloc(len+1);
+      char *buf = (char*)sp_str_arena_alloc(len+1);
       memcpy(buf, str+caps[i*2], len); buf[len] = 0;
       sp_re_captures[i] = buf;
     }
@@ -258,7 +290,7 @@ static mrb_bool sp_re_match_p(mrb_regexp_pattern *pat, const char *str) {
 
 static const char *sp_re_gsub(mrb_regexp_pattern *pat, const char *str, const char *rep) {
   int64_t slen = (int64_t)strlen(str); size_t rlen = strlen(rep);
-  size_t cap = slen * 2 + 64; char *out = (char*)malloc(cap); size_t olen = 0;
+  size_t cap = slen * 2 + 64; char *out = (char*)sp_str_arena_alloc(cap); size_t olen = 0;
   int64_t pos = 0; int caps[64];
   while (pos <= slen) {
     int n = re_exec(pat, str, slen, pos, caps, 64);
@@ -281,7 +313,7 @@ static const char *sp_re_sub(mrb_regexp_pattern *pat, const char *str, const cha
   int n = re_exec(pat, str, slen, 0, caps, 64);
   if (n <= 0 || caps[0] < 0) return str;
   size_t out_len = caps[0] + rlen + (slen - caps[1]);
-  char *out = (char*)malloc(out_len + 1);
+  char *out = (char*)sp_str_arena_alloc(out_len + 1);
   memcpy(out, str, caps[0]);
   memcpy(out+caps[0], rep, rlen);
   memcpy(out+caps[0]+rlen, str+caps[1], slen-caps[1]+1);
@@ -295,7 +327,7 @@ static sp_StrArray *sp_re_scan(mrb_regexp_pattern *pat, const char *str) {
     int n = re_exec(pat, str, slen, pos, caps, 64);
     if (n <= 0 || caps[0] < 0) break;
     int len = caps[1] - caps[0];
-    char *m = (char*)malloc(len+1); memcpy(m, str+caps[0], len); m[len] = 0;
+    char *m = (char*)sp_str_arena_alloc(len+1); memcpy(m, str+caps[0], len); m[len] = 0;
     sp_StrArray_push(arr, m);
     pos = caps[1]; if (caps[0] == caps[1]) pos++;
   }
@@ -308,10 +340,10 @@ static sp_StrArray *sp_re_split(mrb_regexp_pattern *pat, const char *str) {
   while (pos <= slen) {
     int n = re_exec(pat, str, slen, pos, caps, 64);
     if (n <= 0 || caps[0] < 0) {
-      int len = slen - pos; char *m = (char*)malloc(len+1);
+      int len = slen - pos; char *m = (char*)sp_str_arena_alloc(len+1);
       memcpy(m, str+pos, len); m[len] = 0; sp_StrArray_push(arr, m); break;
     }
-    int len = caps[0] - pos; char *m = (char*)malloc(len+1);
+    int len = caps[0] - pos; char *m = (char*)sp_str_arena_alloc(len+1);
     memcpy(m, str+pos, len); m[len] = 0; sp_StrArray_push(arr, m);
     pos = caps[1]; if (caps[0] == caps[1]) pos++;
   }
@@ -344,7 +376,7 @@ static void sp_poly_puts(sp_RbVal v) {
   }
 }
 static mrb_bool sp_poly_nil_p(sp_RbVal v) { return v.tag == SP_TAG_NIL; }
-static const char *sp_poly_to_s(sp_RbVal v) { switch (v.tag) { case SP_TAG_INT: { char *b = (char*)malloc(32); snprintf(b, 32, "%lld", (long long)v.v.i); return b; } case SP_TAG_STR: return v.v.s ? v.v.s : ""; case SP_TAG_FLT: { char *b = (char*)malloc(64); snprintf(b, 64, "%g", v.v.f); return b; } case SP_TAG_BOOL: return v.v.b ? "true" : "false"; case SP_TAG_NIL: return ""; default: return ""; } }
+static const char *sp_poly_to_s(sp_RbVal v) { switch (v.tag) { case SP_TAG_INT: { char *b = (char*)sp_str_arena_alloc(32); snprintf(b, 32, "%lld", (long long)v.v.i); return b; } case SP_TAG_STR: return v.v.s ? v.v.s : ""; case SP_TAG_FLT: { char *b = (char*)sp_str_arena_alloc(64); snprintf(b, 64, "%g", v.v.f); return b; } case SP_TAG_BOOL: return v.v.b ? "true" : "false"; case SP_TAG_NIL: return ""; default: return ""; } }
 static sp_RbVal sp_poly_add(sp_RbVal a, sp_RbVal b) { if (a.tag == SP_TAG_INT && b.tag == SP_TAG_INT) return sp_box_int(a.v.i + b.v.i); if (a.tag == SP_TAG_FLT && b.tag == SP_TAG_FLT) return sp_box_float(a.v.f + b.v.f); if (a.tag == SP_TAG_INT && b.tag == SP_TAG_FLT) return sp_box_float((mrb_float)a.v.i + b.v.f); if (a.tag == SP_TAG_FLT && b.tag == SP_TAG_INT) return sp_box_float(a.v.f + (mrb_float)b.v.i); if (a.tag == SP_TAG_STR && b.tag == SP_TAG_STR) return sp_box_str(sp_str_concat(a.v.s, b.v.s)); return sp_box_int(0); }
 static sp_RbVal sp_poly_sub(sp_RbVal a, sp_RbVal b) { if (a.tag == SP_TAG_INT && b.tag == SP_TAG_INT) return sp_box_int(a.v.i - b.v.i); if (a.tag == SP_TAG_FLT && b.tag == SP_TAG_FLT) return sp_box_float(a.v.f - b.v.f); return sp_box_int(0); }
 static sp_RbVal sp_poly_mul(sp_RbVal a, sp_RbVal b) { if (a.tag == SP_TAG_INT && b.tag == SP_TAG_INT) return sp_box_int(a.v.i * b.v.i); if (a.tag == SP_TAG_FLT && b.tag == SP_TAG_FLT) return sp_box_float(a.v.f * b.v.f); if (a.tag == SP_TAG_INT && b.tag == SP_TAG_FLT) return sp_box_float((mrb_float)a.v.i * b.v.f); if (a.tag == SP_TAG_FLT && b.tag == SP_TAG_INT) return sp_box_float(a.v.f * (mrb_float)b.v.i); return sp_box_int(0); }
@@ -379,7 +411,7 @@ static const char *sp_file_read(const char *path) { FILE *f = fopen(path, "rb");
 static void sp_file_write(const char *path, const char *data) { FILE *f = fopen(path, "w"); if (f) { fputs(data, f); fclose(f); } }
 static mrb_bool sp_file_exist(const char *path) { FILE *f = fopen(path, "r"); if (f) { fclose(f); return TRUE; } return FALSE; }
 static void sp_file_delete(const char *path) { remove(path); }
-static const char *sp_backtick(const char *cmd) { FILE *p = popen(cmd, "r"); if (!p) return ""; char *buf = (char *)malloc(4096); size_t n = fread(buf, 1, 4095, p); buf[n] = 0; pclose(p); return buf; }
+static const char *sp_backtick(const char *cmd) { FILE *p = popen(cmd, "r"); if (!p) return ""; char *buf = (char*)sp_str_arena_alloc(4096); size_t n = fread(buf, 1, 4095, p); buf[n] = 0; pclose(p); return buf; }
 static const char *sp_file_basename(const char *path) { const char *s = strrchr(path, '/'); if (s) return s + 1; return path; }
 
 typedef mrb_int (*sp_proc_fn_t)(mrb_int);
@@ -392,7 +424,7 @@ typedef struct { char *buf; int64_t len; int64_t cap; int64_t pos; int64_t linen
 static void sio_grow(sp_StringIO *sio, int64_t need) { int64_t req = sio->pos + need; if (req <= sio->cap) return; int64_t nc = sio->cap ? sio->cap : 64; while (nc < req) nc *= 2; sio->buf = (char *)realloc(sio->buf, nc + 1); sio->cap = nc; }
 static int64_t sio_write(sp_StringIO *sio, const char *d, int64_t dl) { sio_grow(sio, dl); if (sio->pos > sio->len) memset(sio->buf + sio->len, 0, sio->pos - sio->len); memcpy(sio->buf + sio->pos, d, dl); sio->pos += dl; if (sio->pos > sio->len) sio->len = sio->pos; sio->buf[sio->len] = '\0'; return dl; }
 static sp_StringIO *sp_StringIO_new(void) { sp_StringIO *s = (sp_StringIO *)calloc(1, sizeof(sp_StringIO)); s->buf = (char *)calloc(1, 64); s->cap = 63; return s; }
-static sp_StringIO *sp_StringIO_new_s(const char *init) { sp_StringIO *s = (sp_StringIO *)calloc(1, sizeof(sp_StringIO)); int64_t l = (int64_t)strlen(init); int64_t c = l < 63 ? 63 : l; s->buf = (char *)malloc(c+1); memcpy(s->buf, init, l); s->buf[l]='\0'; s->len = l; s->cap = c; return s; }
+static sp_StringIO *sp_StringIO_new_s(const char *init) { sp_StringIO *s = (sp_StringIO *)calloc(1, sizeof(sp_StringIO)); int64_t l = (int64_t)strlen(init); int64_t c = l < 63 ? 63 : l; s->buf = (char*)malloc(c+1); memcpy(s->buf, init, l); s->buf[l]='\0'; s->len = l; s->cap = c; return s; }
 static const char *sp_StringIO_string(sp_StringIO *s) { return s->buf ? s->buf : ""; }
 static int64_t sp_StringIO_pos(sp_StringIO *s) { return s->pos; }
 static int64_t sp_StringIO_size(sp_StringIO *s) { return s->len; }
@@ -402,9 +434,9 @@ static int64_t sp_StringIO_puts_empty(sp_StringIO *s) { sio_write(s, "\n", 1); r
 static int64_t sp_StringIO_print(sp_StringIO *s, const char *str) { return sio_write(s, str, (int64_t)strlen(str)); }
 static int64_t sp_StringIO_putc(sp_StringIO *s, int64_t ch) { char c = (char)(ch & 0xFF); sio_write(s, &c, 1); return ch; }
 static const char *sp_StringIO_read(sp_StringIO *s) { if (s->pos >= s->len) return ""; const char *r = s->buf + s->pos; s->pos = s->len; return r; }
-static const char *sp_StringIO_read_n(sp_StringIO *s, int64_t n) { if (s->pos >= s->len) return ""; int64_t rem = s->len - s->pos; if (n > rem) n = rem; char *r = (char *)malloc(n+1); memcpy(r, s->buf + s->pos, n); r[n] = '\0'; s->pos += n; return r; }
-static const char *sp_StringIO_gets(sp_StringIO *s) { if (s->pos >= s->len) return NULL; const char *st = s->buf + s->pos; const char *nl = memchr(st, '\n', s->len - s->pos); int64_t ll = nl ? (nl - st) + 1 : s->len - s->pos; char *r = (char *)malloc(ll+1); memcpy(r, st, ll); r[ll] = '\0'; s->pos += ll; s->lineno++; return r; }
-static const char *sp_StringIO_getc(sp_StringIO *s) { if (s->pos >= s->len) return NULL; char *gc = (char *)malloc(2); gc[0] = s->buf[s->pos++]; gc[1] = '\0'; return gc; }
+static const char *sp_StringIO_read_n(sp_StringIO *s, int64_t n) { if (s->pos >= s->len) return ""; int64_t rem = s->len - s->pos; if (n > rem) n = rem; char *r = (char*)sp_str_arena_alloc(n+1); memcpy(r, s->buf + s->pos, n); r[n] = '\0'; s->pos += n; return r; }
+static const char *sp_StringIO_gets(sp_StringIO *s) { if (s->pos >= s->len) return NULL; const char *st = s->buf + s->pos; const char *nl = memchr(st, '\n', s->len - s->pos); int64_t ll = nl ? (nl - st) + 1 : s->len - s->pos; char *r = (char*)sp_str_arena_alloc(ll+1); memcpy(r, st, ll); r[ll] = '\0'; s->pos += ll; s->lineno++; return r; }
+static const char *sp_StringIO_getc(sp_StringIO *s) { if (s->pos >= s->len) return NULL; char *gc = (char*)sp_str_arena_alloc(2); gc[0] = s->buf[s->pos++]; gc[1] = '\0'; return gc; }
 static int64_t sp_StringIO_getbyte(sp_StringIO *s) { if (s->pos >= s->len) return -1; return (int64_t)(unsigned char)s->buf[s->pos++]; }
 static int64_t sp_StringIO_rewind(sp_StringIO *s) { s->pos = 0; s->lineno = 0; return 0; }
 static int64_t sp_StringIO_seek(sp_StringIO *s, int64_t off) { if (off < 0) off = 0; s->pos = off; return 0; }
