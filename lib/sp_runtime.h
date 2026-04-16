@@ -233,6 +233,8 @@ static sp_StrStrHash*sp_StrStrHash_invert(sp_StrStrHash*h){sp_StrStrHash*r=sp_St
 static void sp_StrStrHash_update(sp_StrStrHash*a,sp_StrStrHash*b){for(mrb_int i=0;i<b->len;i++)sp_StrStrHash_set(a,b->order[i],sp_StrStrHash_get(b,b->order[i]));}
 
 static const char*sp_str_concat(const char*a,const char*b){size_t la=strlen(a),lb=strlen(b);char*r=(char*)malloc(1+la+lb+1);r[0]=(char)0xff;memcpy(r+1,a,la);memcpy(r+1+la,b,lb);r[1+la+lb]=0;return r+1;}
+static const char*sp_str_concat3(const char*a,const char*b,const char*c){size_t la=strlen(a),lb=strlen(b),lc=strlen(c);char*r=(char*)malloc(1+la+lb+lc+1);r[0]=(char)0xff;memcpy(r+1,a,la);memcpy(r+1+la,b,lb);memcpy(r+1+la+lb,c,lc+1);return r+1;}
+static const char*sp_str_concat4(const char*a,const char*b,const char*c,const char*d){size_t la=strlen(a),lb=strlen(b),lc=strlen(c),ld=strlen(d);char*r=(char*)malloc(1+la+lb+lc+ld+1);r[0]=(char)0xff;memcpy(r+1,a,la);memcpy(r+1+la,b,lb);memcpy(r+1+la+lb,c,lc);memcpy(r+1+la+lb+lc,d,ld+1);return r+1;}
 static const char*sp_int_to_s(mrb_int n){char*b=sp_str_alloc_raw(32);snprintf(b,32,"%lld",(long long)n);return b;}
 static const char*sp_int_to_s_base(mrb_int n,mrb_int base){if(base<2||base>36)base=10;char*b=sp_str_alloc_raw(72);char tmp[72];int i=0;int neg=0;uint64_t u;if(n<0){neg=1;u=(uint64_t)(-(n+1))+1;}else{u=(uint64_t)n;}if(u==0){tmp[i++]='0';}else{while(u>0){mrb_int d=u%base;tmp[i++]=d<10?'0'+d:'a'+d-10;u/=base;}}int j=0;if(neg)b[j++]='-';while(i>0)b[j++]=tmp[--i];b[j]=0;return b;}
 static const char*sp_float_to_s(mrb_float f){char*b=sp_str_alloc_raw(64);snprintf(b,64,"%g",f);return b;}

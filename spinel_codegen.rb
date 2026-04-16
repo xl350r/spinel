@@ -12108,6 +12108,47 @@ class Compiler
     "sp_bigint_new_int(0)"
   end
 
+  # Collect flattened parts of a string concat chain: a + b + c → [a, b, c]
+  # Returns compiled expression strings. Only flattens up to 4 parts.
+  def collect_concat_chain(nid)
+    parts = "".split(",")
+    collect_concat_parts(nid, parts)
+    parts
+  end
+
+  def collect_concat_parts(nid, parts)
+    if parts.length >= 4
+      parts.push(compile_expr(nid))
+      return
+    end
+    if @nd_type[nid] == "CallNode" && @nd_name[nid] == "+"
+      recv = @nd_receiver[nid]
+      if recv >= 0 && infer_type(recv) == "string"
+        collect_concat_parts(recv, parts)
+        args_id = @nd_arguments[nid]
+        if args_id >= 0
+          aargs = get_args(args_id)
+          if aargs.length > 0
+            at = infer_type(aargs[0])
+            if at == "string"
+              parts.push(compile_expr(aargs[0]))
+            elsif at == "int"
+              @needs_string_helpers = 1
+              parts.push("sp_int_to_s(" + compile_expr(aargs[0]) + ")")
+            elsif at == "float"
+              @needs_string_helpers = 1
+              parts.push("sp_float_to_s(" + compile_expr(aargs[0]) + ")")
+            else
+              parts.push(compile_expr(aargs[0]))
+            end
+            return
+          end
+        end
+      end
+    end
+    parts.push(compile_expr(nid))
+  end
+
   def compile_operator_expr(nid, mname, recv)
     # Bigint operators
     lt = infer_type(recv)
@@ -12178,6 +12219,14 @@ class Compiler
       end
       if lt == "string"
         @needs_string_helpers = 1
+        # Flatten chained string concat: a + b + c → sp_str_concat3(a,b,c)
+        parts = collect_concat_chain(nid)
+        if parts.length == 3
+          return "sp_str_concat3(" + parts[0] + ", " + parts[1] + ", " + parts[2] + ")"
+        end
+        if parts.length == 4
+          return "sp_str_concat4(" + parts[0] + ", " + parts[1] + ", " + parts[2] + ", " + parts[3] + ")"
+        end
         return "sp_str_concat(" + compile_expr(recv) + ", " + compile_arg0(nid) + ")"
       end
       if lt == "poly"
