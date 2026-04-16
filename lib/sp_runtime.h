@@ -232,6 +232,26 @@ static sp_StrArray*sp_StrStrHash_values(sp_StrStrHash*h){sp_StrArray*a=sp_StrArr
 static sp_StrStrHash*sp_StrStrHash_invert(sp_StrStrHash*h){sp_StrStrHash*r=sp_StrStrHash_new();for(mrb_int i=0;i<h->len;i++){const char*k=h->order[i];sp_StrStrHash_set(r,sp_StrStrHash_get(h,k),k);}return r;}
 static void sp_StrStrHash_update(sp_StrStrHash*a,sp_StrStrHash*b){for(mrb_int i=0;i<b->len;i++)sp_StrStrHash_set(a,b->order[i],sp_StrStrHash_get(b,b->order[i]));}
 
+/* Reuse an existing StrArray for split, avoiding GC alloc.
+   Clears a->len and refills.  Substring strings are still malloc'd. */
+static void sp_str_split_into(sp_StrArray*a,const char*s,const char*sep){
+  a->len=0;if(*s==0)return;size_t sl=strlen(sep);
+  if(sl==0){for(size_t i=0;s[i];i++){char*c=sp_str_alloc_raw(2);c[0]=s[i];c[1]=0;sp_StrArray_push(a,c);}return;}
+  const char*p=s;while(1){const char*f=strstr(p,sep);if(!f){char*r=sp_str_alloc_raw(strlen(p)+1);strcpy(r,p);sp_StrArray_push(a,r);break;}
+  size_t n=f-p;char*r=sp_str_alloc_raw(n+1);memcpy(r,p,n);r[n]=0;sp_StrArray_push(a,r);p=f+sl;}}
+/* Extract the n-th field (0-based) from s split by sep, without
+   allocating a full StrArray.  Returns a newly allocated string.
+   If the field doesn't exist, returns "". */
+static const char*sp_str_field(const char*s,const char*sep,mrb_int n){
+  size_t sl=strlen(sep);mrb_int cur=0;const char*p=s;
+  if(sl==0)return("");
+  while(cur<n){const char*f=strstr(p,sep);if(!f)return("");p=f+sl;cur++;}
+  const char*end=strstr(p,sep);size_t len=end?((size_t)(end-p)):strlen(p);
+  char*r=sp_str_alloc_raw(len+1);memcpy(r,p,len);r[len]=0;return r;}
+/* Count fields in s split by sep (without allocating). */
+static mrb_int sp_str_field_count(const char*s,const char*sep){
+  if(*s==0)return 0;size_t sl=strlen(sep);if(sl==0)return(mrb_int)strlen(s);
+  mrb_int c=1;const char*p=s;while((p=strstr(p,sep))!=NULL){c++;p+=sl;}return c;}
 static const char*sp_str_concat(const char*a,const char*b){size_t la=strlen(a),lb=strlen(b);char*r=(char*)malloc(1+la+lb+1);r[0]=(char)0xff;memcpy(r+1,a,la);memcpy(r+1+la,b,lb);r[1+la+lb]=0;return r+1;}
 static const char*sp_str_concat3(const char*a,const char*b,const char*c){size_t la=strlen(a),lb=strlen(b),lc=strlen(c);char*r=(char*)malloc(1+la+lb+lc+1);r[0]=(char)0xff;memcpy(r+1,a,la);memcpy(r+1+la,b,lb);memcpy(r+1+la+lb,c,lc+1);return r+1;}
 static const char*sp_str_concat4(const char*a,const char*b,const char*c,const char*d){size_t la=strlen(a),lb=strlen(b),lc=strlen(c),ld=strlen(d);char*r=(char*)malloc(1+la+lb+lc+ld+1);r[0]=(char)0xff;memcpy(r+1,a,la);memcpy(r+1+la,b,lb);memcpy(r+1+la+lb,c,lc);memcpy(r+1+la+lb+lc,d,ld+1);return r+1;}

@@ -15319,6 +15319,20 @@ class Compiler
         end
         return
       end
+      # Optimize: x = str.split(sep) inside a loop → reuse StrArray
+      if @in_loop == 1 && vt == "str_array"
+        expr_id = @nd_expression[nid]
+        if expr_id >= 0 && @nd_type[expr_id] == "CallNode" && @nd_name[expr_id] == "split"
+          r = @nd_receiver[expr_id]
+          if r >= 0 && infer_type(r) == "string"
+            src = compile_expr(r)
+            sep = compile_arg0(expr_id)
+            emit("  if (" + vref + " == NULL) " + vref + " = sp_str_split(" + src + ", " + sep + ");")
+            emit("  else sp_str_split_into(" + vref + ", " + src + ", " + sep + ");")
+            return
+          end
+        end
+      end
       rhs_t = infer_type(@nd_expression[nid])
       if rhs_t == "nil" && is_nullable_type(vt) == 1
         emit("  " + vref + " = NULL;")
