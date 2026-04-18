@@ -240,18 +240,29 @@ class Compiler
   end
 
 
-  # Parse comma-sep node IDs into IntArray
+  # Parse comma-sep node IDs into IntArray. Manually walks bytes to avoid
+  # allocating the intermediate StrArray + substrings that `String#split`
+  # would produce — this is called ~100 K times during bootstrap.
   def parse_id_list(s)
     if s == ""
       return []
     end
-    parts = s.split(",")
     result = []
+    bs = s.bytes
     i = 0
-    while i < parts.length
-      result.push(parts[i].to_i)
+    n = bs.length
+    num = 0
+    while i < n
+      b = bs[i]
+      if b == 44  # ','
+        result.push(num)
+        num = 0
+      else
+        num = num * 10 + (b - 48)
+      end
       i = i + 1
     end
+    result.push(num)
     result
   end
 
