@@ -78,7 +78,7 @@ gen2.c == gen3.c   (bootstrap loop closed)
 
 ## Benchmarks
 
-74 tests pass. 54 benchmarks pass.
+74 tests pass. 55 benchmarks pass.
 Geometric mean: **~49x faster** than CRuby across 50 benchmarks.
 
 ### Computation
@@ -104,6 +104,7 @@ Geometric mean: **~49x faster** than CRuby across 50 benchmarks.
 | Benchmark | Spinel | CRuby | Speedup |
 |---|---|---|---|
 | rbtree (red-black tree) | 23 ms | 571 ms | 24.8x |
+| huffman (encoding) | 10 ms | 200 ms | 20.0x |
 | splay tree | 14 ms | 241 ms | 17.2x |
 | binary_trees | 11 ms | 105 ms | 9.5x |
 | so_lists | 74 ms | 510 ms | 6.9x |
@@ -230,7 +231,7 @@ lib/sp_runtime.h      Runtime library header (581 lines)
 lib/sp_bigint.c       Arbitrary precision integers (5,394 lines)
 lib/regexp/           Built-in regexp engine (1,626 lines)
 test/                 74 feature tests
-benchmark/            54 benchmarks
+benchmark/            55 benchmarks
 Makefile              Build automation
 ```
 
@@ -259,7 +260,7 @@ by inlining the referenced file.
 ```bash
 make              # build parser + regexp library + bootstrap compiler
 make test         # run 74 feature tests (requires bootstrap)
-make bench        # run 54 benchmarks (requires bootstrap)
+make bench        # run 55 benchmarks (requires bootstrap)
 make bootstrap    # rebuild compiler from source
 sudo make install # install to /usr/local (spinel in PATH)
 make clean        # remove build artifacts
