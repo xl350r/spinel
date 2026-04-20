@@ -19941,11 +19941,10 @@ class Compiler
         @indent = @indent - 1
       end
       emit("  }")
-    else
-      # No type check - bare rescue, catches all
-      sub = @nd_subsequent[rc]
-      # Ignore subsequent since bare rescue catches all
     end
+    # Bare rescue catches all, so any subsequent clause is unreachable
+    # and we deliberately don't recurse.
+    0
   end
 
   def compile_rescue_body(nid, has_retry)
