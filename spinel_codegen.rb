@@ -14091,6 +14091,12 @@ class Compiler
         end
         return "sp_IntArray_length(" + rc + ")"
       end
+      if mname == "size"
+        if @hoisted_strlen_var != "" && @hoisted_strlen_recv == rc
+          return @hoisted_strlen_var
+        end
+        return "sp_IntArray_length(" + rc + ")"
+      end
       if mname == "[]"
         return "sp_IntArray_get(" + rc + ", " + compile_arg0(nid) + ")"
       end
@@ -14308,6 +14314,12 @@ class Compiler
     end
     if recv_type == "str_array"
       if mname == "length"
+        if @hoisted_strlen_var != "" && @hoisted_strlen_recv == rc
+          return @hoisted_strlen_var
+        end
+        return "sp_StrArray_length(" + rc + ")"
+      end
+      if mname == "size"
         if @hoisted_strlen_var != "" && @hoisted_strlen_recv == rc
           return @hoisted_strlen_var
         end
