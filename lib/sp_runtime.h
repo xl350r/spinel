@@ -88,7 +88,7 @@ static sp_gc_hdr *sp_gc_heap = NULL; static size_t sp_gc_bytes = 0; static size_
 /* ---- String GC ---- */
 typedef struct sp_str_hdr { struct sp_str_hdr *next; size_t size; } sp_str_hdr;
 static sp_str_hdr *sp_str_heap = NULL;
-#define SPL(s) ("\xff" s + 1)
+#define SPL(s) (&("\xff" s)[1])
 static const char sp_str_empty_data[] = "\xff";
 #define sp_str_empty (sp_str_empty_data + 1)
 
@@ -314,10 +314,10 @@ static const char*sp_str_gsub(const char*s,const char*pat,const char*rep){size_t
 static mrb_int sp_str_index(const char*s,const char*sub){const char*f=strstr(s,sub);if(!f)return -1;return(mrb_int)(f-s);}
 static char sp_char_cache[256][3];
 static int sp_char_cache_init = 0;
-static const char*sp_str_sub_range(const char*s,mrb_int start,mrb_int len){mrb_int sl=(mrb_int)strlen(s);if(start<0)start+=sl;if(start<0)start=0;if(start>=sl)return ("\xff" "" + 1);if(len<0)len=0;if(start+len>sl)len=sl-start;if(len==1){unsigned char c=(unsigned char)s[start];if(!sp_char_cache_init){for(int i=0;i<256;i++){sp_char_cache[i][0]=(char)0xff;sp_char_cache[i][1]=(char)i;sp_char_cache[i][2]=0;}sp_char_cache_init=1;}return &sp_char_cache[c][1];}char*r=sp_str_alloc_raw(len+1);memcpy(r,s+start,len);r[len]=0;return r;}
+static const char*sp_str_sub_range(const char*s,mrb_int start,mrb_int len){mrb_int sl=(mrb_int)strlen(s);if(start<0)start+=sl;if(start<0)start=0;if(start>=sl)return &("\xff" "")[1];if(len<0)len=0;if(start+len>sl)len=sl-start;if(len==1){unsigned char c=(unsigned char)s[start];if(!sp_char_cache_init){for(int i=0;i<256;i++){sp_char_cache[i][0]=(char)0xff;sp_char_cache[i][1]=(char)i;sp_char_cache[i][2]=0;}sp_char_cache_init=1;}return &sp_char_cache[c][1];}char*r=sp_str_alloc_raw(len+1);memcpy(r,s+start,len);r[len]=0;return r;}
 /* Same as sp_str_sub_range but caller provides the string length
    (useful when strlen has been hoisted out of a loop). */
-static const char*sp_str_sub_range_len(const char*s,mrb_int sl,mrb_int start,mrb_int len){if(start<0)start+=sl;if(start<0)start=0;if(start>=sl)return ("\xff" "" + 1);if(len<0)len=0;if(start+len>sl)len=sl-start;if(len==1){unsigned char c=(unsigned char)s[start];if(!sp_char_cache_init){for(int i=0;i<256;i++){sp_char_cache[i][0]=(char)0xff;sp_char_cache[i][1]=(char)i;sp_char_cache[i][2]=0;}sp_char_cache_init=1;}return &sp_char_cache[c][1];}char*r=sp_str_alloc_raw(len+1);memcpy(r,s+start,len);r[len]=0;return r;}
+static const char*sp_str_sub_range_len(const char*s,mrb_int sl,mrb_int start,mrb_int len){if(start<0)start+=sl;if(start<0)start=0;if(start>=sl)return &("\xff" "")[1];if(len<0)len=0;if(start+len>sl)len=sl-start;if(len==1){unsigned char c=(unsigned char)s[start];if(!sp_char_cache_init){for(int i=0;i<256;i++){sp_char_cache[i][0]=(char)0xff;sp_char_cache[i][1]=(char)i;sp_char_cache[i][2]=0;}sp_char_cache_init=1;}return &sp_char_cache[c][1];}char*r=sp_str_alloc_raw(len+1);memcpy(r,s+start,len);r[len]=0;return r;}
 static const char*sp_sprintf(const char*fmt,...){char*b=sp_str_alloc_raw(4096);va_list ap;va_start(ap,fmt);vsnprintf(b,4096,fmt,ap);va_end(ap);return b;}
 static const char*sp_str_reverse(const char*s){size_t l=strlen(s);char*r=sp_str_alloc_raw(l+1);for(size_t i=0;i<l;i++)r[i]=s[l-1-i];r[l]=0;return r;}
 static const char*sp_str_sub(const char*s,const char*pat,const char*rep){const char*f=strstr(s,pat);if(!f)return s;size_t pl=strlen(pat),rl=strlen(rep),sl=strlen(s);char*r=sp_str_alloc_raw(sl-pl+rl+1);size_t n=f-s;memcpy(r,s,n);memcpy(r+n,rep,rl);memcpy(r+n+rl,f+pl,sl-n-pl+1);return r;}
@@ -536,7 +536,7 @@ static mrb_int sp_catch_val[SP_CATCH_STACK_MAX];
 static volatile int sp_catch_top = 0;
 static void sp_throw(const char *tag, mrb_int val) { int i = sp_catch_top - 1; while (i >= 0) { if (strcmp(sp_catch_tag[i], tag) == 0) { sp_catch_val[i] = val; sp_catch_top = i + 1; longjmp(sp_catch_stack[i], 1); } i--; } fprintf(stderr, "uncaught throw: %s\n", tag); exit(1); }
 
-static const char *sp_file_read(const char *path) { FILE *f = fopen(path, "rb"); if (!f) return ("\xff" "" + 1); fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET); char *buf = sp_str_alloc(sz); if (sz > 0) { size_t r = fread(buf, 1, sz, f); (void)r; } buf[sz] = 0; fclose(f); return buf; }
+static const char *sp_file_read(const char *path) { FILE *f = fopen(path, "rb"); if (!f) return &("\xff" "")[1]; fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET); char *buf = sp_str_alloc(sz); if (sz > 0) { size_t r = fread(buf, 1, sz, f); (void)r; } buf[sz] = 0; fclose(f); return buf; }
 static void sp_file_write(const char *path, const char *data) { FILE *f = fopen(path, "w"); if (f) { fputs(data, f); fclose(f); } }
 static mrb_bool sp_file_exist(const char *path) { FILE *f = fopen(path, "r"); if (f) { fclose(f); return TRUE; } return FALSE; }
 static void sp_file_delete(const char *path) { remove(path); }

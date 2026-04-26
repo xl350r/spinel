@@ -3092,7 +3092,7 @@ class Compiler
       return "FALSE"
     end
     if t == "string"
-      return "(\"\\xff\" + 1)"
+      return "(&(\"\\xff\")[1])"
     end
     if t == "symbol"
       return "((sp_sym)-1)"
@@ -11442,15 +11442,17 @@ class Compiler
       end
     end
     # Prepend 0xff marker byte so GC can identify static literals.
-    # Return form: ("\xff" "content" + 1) — C concatenates adjacent literals.
-    "(\"\\xff\" " + result + "\" + 1)"
+    # Return form: (&("\xff" "content")[1]) — same pointer value as the
+    # legacy ("\xff" "content" + 1) idiom, but uses array indexing so
+    # clang doesn't flag it under -Wstring-plus-int.
+    "(&(\"\\xff\" " + result + "\")[1])"
   end
 
   def compile_interpolated(nid)
     @needs_string_helpers = 1
     parts = parse_id_list(@nd_parts[nid])
     if parts.length == 0
-      return "(\"\\xff\" + 1)"
+      return "(&(\"\\xff\")[1])"
     end
     fmt = ""
     arg_exprs = "".split(",")
@@ -14440,7 +14442,7 @@ class Compiler
         if args_id0s >= 0
           aa0s = get_args(args_id0s)
           if aa0s.length > 0 && infer_type(aa0s[0]) != "symbol"
-            return "(\"\\xff\" + 1)"
+            return "(&(\"\\xff\")[1])"
           end
         end
         return "sp_SymStrHash_get((sp_SymStrHash *)(" + rc + "), " + compile_arg0(nid) + ")"

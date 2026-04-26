@@ -149,7 +149,7 @@ case "$(uname -s 2>/dev/null)" in
   MINGW*|MSYS*|CYGWIN*) EXTRA_FLAGS="$EXTRA_FLAGS -Wl,--stack,67108864" ;;
 esac
 
-$CC_CMD -O${OPT_LEVEL} -Wno-all -Wno-string-plus-int -ffunction-sections -fdata-sections $INCLUDE_FLAGS "$C_FILE" -lm $EXTRA_FLAGS $GC_FLAG -o "$BIN_FILE"
+$CC_CMD -O${OPT_LEVEL} -Wno-all -ffunction-sections -fdata-sections $INCLUDE_FLAGS "$C_FILE" -lm $EXTRA_FLAGS $GC_FLAG -o "$BIN_FILE"
 if [ $? -ne 0 ]; then
   echo "spinel: C compilation failed" >&2
   exit 1

@@ -9,10 +9,7 @@
 #   make clean        Remove built binaries
 
 CC       ?= cc
-# -Wno-string-plus-int silences clang's warning on the immortal-string
-# idiom ("\xff" "literal" + 1). gcc doesn't have this warning but accepts
-# the flag silently, so it is safe to apply unconditionally.
-CFLAGS   = -O2 -Wno-all -Wno-string-plus-int
+CFLAGS   = -O2 -Wno-all
 # Per-function sections allow the linker to strip unused bigint/regexp
 # functions from the final binary (supported since GCC 2.7 / binutils 2.17).
 SEC_FLAGS = -ffunction-sections -fdata-sections
