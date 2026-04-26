@@ -775,11 +775,16 @@ static char *resolve_requires(const char *source, const char *source_path) {
 
   char *result = strdup(source);
   char *pos;
-  while ((pos = strstr(result, "require_relative")) != NULL) {
-    /* Check it's at start of line */
+  char *scan_from = result;
+  while ((pos = strstr(scan_from, "require_relative")) != NULL) {
+    /* Check it's at start of line. If the match is mid-line (e.g.
+       the word appears in a comment or string), advance past it and
+       keep scanning the rest of the file — don't abort the whole
+       loop, since later lines may have legitimate require_relative
+       statements. */
     if (pos != result && *(pos - 1) != '\n') {
-      /* Not at line start, skip */
-      break;
+      scan_from = pos + 1;
+      continue;
     }
     char *line_end = strchr(pos, '\n');
     if (!line_end) line_end = pos + strlen(pos);
@@ -835,6 +840,8 @@ static char *resolve_requires(const char *source, const char *source_path) {
 
     free(result);
     result = new_result;
+    /* Buffer reallocated; restart scan from the top of the new buffer. */
+    scan_from = result;
     free(content);
   }
   free(dir);
