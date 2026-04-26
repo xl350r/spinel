@@ -9777,6 +9777,9 @@ class Compiler
           declare_var(pnames[k], pt)
           k = k + 1
         end
+        # Declare any local variables used inside initialize so that
+        # `x = 1; @a = x` style bodies don't reference an undeclared lv_x.
+        declare_method_locals(bid, pnames)
         stmts = get_stmts(bid)
         stmts.each { |sid|
           if @nd_type[sid] == "SuperNode"
@@ -9882,12 +9885,13 @@ class Compiler
           declare_var(pnames[k], pt)
           k = k + 1
         end
+        # Declare locals so non-ivar statements (`x = 1`) and
+        # expressions that reference them compile.
+        declare_method_locals(bid, pnames)
         stmts = get_stmts(bid)
         stmts.each { |sid|
-          if @nd_type[sid] == "InstanceVariableWriteNode"
-            ivar = sanitize_ivar(@nd_name[sid])
-            val = compile_expr(@nd_expression[sid])
-            emit_raw("  " + self_arrow + ivar + " = " + val + ";")
+          if @nd_type[sid] != "SuperNode"
+            compile_stmt(sid)
           end
         }
         pop_scope
