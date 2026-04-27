@@ -5100,49 +5100,28 @@ class Compiler
             while pk < pnames.length
               if pk < ptypes.length
                 if ptypes[pk] == "int"
-                  # Check against ALL classes' readers and zero-arg methods
-                  ci2 = 0
-                  found_class = 0
-                  while ci2 < @cls_names.length
-                    if found_class == 0
-                      readers = @cls_attr_readers[ci2].split(";")
-                      if readers.length > 0
-                        if param_calls_reader(bid, pnames[pk], readers) == 1
-                          found_class = 1
-                        end
+                  # Pick the class whose surface (readers + writers +
+                  # methods, walked through parents) contains every
+                  # method actually called on this param. The old
+                  # algorithm matched on a single reader and ignored
+                  # later accesses, picking a class that didn't satisfy
+                  # them — issue #35.
+                  called = "".split(",")
+                  collect_param_methods(bid, pnames[pk], called)
+                  if called.length > 0
+                    ci2 = 0
+                    best = -1
+                    while ci2 < @cls_names.length
+                      if best < 0 && class_has_all_methods(ci2, called) == 1
+                        best = ci2
                       end
-                      # Also check zero-arg class methods as readers
-                      if found_class == 0
-                        ci2_mnames = @cls_meth_names[ci2].split(";")
-                        ci2_mparams = @cls_meth_params[ci2].split("|")
-                        zero_arg_meths = "".split(",")
-                        mi2 = 0
-                        while mi2 < ci2_mnames.length
-                          mn2 = ci2_mnames[mi2]
-                          if mn2 != "initialize"
-                            mp2 = ""
-                            if mi2 < ci2_mparams.length
-                              mp2 = ci2_mparams[mi2]
-                            end
-                            if mp2 == ""
-                              zero_arg_meths.push(mn2)
-                            end
-                          end
-                          mi2 = mi2 + 1
-                        end
-                        if zero_arg_meths.length > 0
-                          if param_calls_reader(bid, pnames[pk], zero_arg_meths) == 1
-                            found_class = 1
-                          end
-                        end
-                      end
-                      if found_class == 1
-                        ptypes[pk] = "obj_" + @cls_names[ci2]
-                        all_ptypes[j] = ptypes.join(",")
-                        @cls_meth_ptypes[oci] = all_ptypes.join("|")
-                      end
+                      ci2 = ci2 + 1
                     end
-                    ci2 = ci2 + 1
+                    if best >= 0
+                      ptypes[pk] = "obj_" + @cls_names[best]
+                      all_ptypes[j] = ptypes.join(",")
+                      @cls_meth_ptypes[oci] = all_ptypes.join("|")
+                    end
                   end
                 end
               end
@@ -5154,7 +5133,8 @@ class Compiler
       end
       oci = oci + 1
     end
-    # Also infer top-level method param types from body usage
+    # Also infer top-level method param types from body usage. Same
+    # all-methods-must-match rule as the cls_meth_param branch above.
     mi = 0
     while mi < @meth_names.length
       bid = @meth_body_ids[mi]
@@ -5165,46 +5145,21 @@ class Compiler
         while pk < pnames.length
           if pk < ptypes.length
             if ptypes[pk] == "int"
-              ci2 = 0
-              found_class = 0
-              while ci2 < @cls_names.length
-                if found_class == 0
-                  readers = @cls_attr_readers[ci2].split(";")
-                  if readers.length > 0
-                    if param_calls_reader(bid, pnames[pk], readers) == 1
-                      found_class = 1
-                    end
+              called = "".split(",")
+              collect_param_methods(bid, pnames[pk], called)
+              if called.length > 0
+                ci2 = 0
+                best = -1
+                while ci2 < @cls_names.length
+                  if best < 0 && class_has_all_methods(ci2, called) == 1
+                    best = ci2
                   end
-                  if found_class == 0
-                    ci2_mnames = @cls_meth_names[ci2].split(";")
-                    ci2_mparams = @cls_meth_params[ci2].split("|")
-                    zero_arg_meths = "".split(",")
-                    mi2 = 0
-                    while mi2 < ci2_mnames.length
-                      mn2 = ci2_mnames[mi2]
-                      if mn2 != "initialize"
-                        mp2 = ""
-                        if mi2 < ci2_mparams.length
-                          mp2 = ci2_mparams[mi2]
-                        end
-                        if mp2 == ""
-                          zero_arg_meths.push(mn2)
-                        end
-                      end
-                      mi2 = mi2 + 1
-                    end
-                    if zero_arg_meths.length > 0
-                      if param_calls_reader(bid, pnames[pk], zero_arg_meths) == 1
-                        found_class = 1
-                      end
-                    end
-                  end
-                  if found_class == 1
-                    ptypes[pk] = "obj_" + @cls_names[ci2]
-                    @meth_param_types[mi] = ptypes.join(",")
-                  end
+                  ci2 = ci2 + 1
                 end
-                ci2 = ci2 + 1
+                if best >= 0
+                  ptypes[pk] = "obj_" + @cls_names[best]
+                  @meth_param_types[mi] = ptypes.join(",")
+                end
               end
             end
           end
@@ -5284,6 +5239,98 @@ class Compiler
       end
     end
     0
+  end
+
+  # Collect every method name called on `pname` anywhere under nid.
+  # Used by parameter type inference to find the class that satisfies
+  # ALL accesses (vs param_calls_reader's any-match shortcut, which
+  # picked the first class with a single matching reader and ignored
+  # later accesses, leading to issue #35).
+  def collect_param_methods(nid, pname, acc)
+    if nid < 0
+      return
+    end
+    if @nd_type[nid] == "CallNode"
+      recv = @nd_receiver[nid]
+      if recv >= 0
+        if @nd_type[recv] == "LocalVariableReadNode"
+          if @nd_name[recv] == pname
+            mname = @nd_name[nid]
+            if not_in(mname, acc) == 1
+              acc.push(mname)
+            end
+          end
+        end
+      end
+    end
+    if @nd_body[nid] >= 0
+      collect_param_methods(@nd_body[nid], pname, acc)
+    end
+    stmts = parse_id_list(@nd_stmts[nid])
+    k = 0
+    while k < stmts.length
+      collect_param_methods(stmts[k], pname, acc)
+      k = k + 1
+    end
+    if @nd_expression[nid] >= 0
+      collect_param_methods(@nd_expression[nid], pname, acc)
+    end
+    if @nd_left[nid] >= 0
+      collect_param_methods(@nd_left[nid], pname, acc)
+    end
+    if @nd_right[nid] >= 0
+      collect_param_methods(@nd_right[nid], pname, acc)
+    end
+    if @nd_arguments[nid] >= 0
+      collect_param_methods(@nd_arguments[nid], pname, acc)
+    end
+    args = parse_id_list(@nd_args[nid])
+    k = 0
+    while k < args.length
+      collect_param_methods(args[k], pname, acc)
+      k = k + 1
+    end
+    if @nd_receiver[nid] >= 0
+      collect_param_methods(@nd_receiver[nid], pname, acc)
+    end
+  end
+
+  # Does class `ci` provide `mname` as a reader, writer, or method?
+  # Walks parent classes for inherited members.
+  def class_has_method(ci, mname)
+    readers = @cls_attr_readers[ci].split(";")
+    if not_in(mname, readers) == 0
+      return 1
+    end
+    if mname.length > 1 && mname[mname.length - 1] == "="
+      bname = mname[0, mname.length - 1]
+      writers = @cls_attr_writers[ci].split(";")
+      if not_in(bname, writers) == 0
+        return 1
+      end
+    end
+    mnames = @cls_meth_names[ci].split(";")
+    if not_in(mname, mnames) == 0
+      return 1
+    end
+    if @cls_parents[ci] != ""
+      pi = find_class_idx(@cls_parents[ci])
+      if pi >= 0
+        return class_has_method(pi, mname)
+      end
+    end
+    return 0
+  end
+
+  def class_has_all_methods(ci, called)
+    k = 0
+    while k < called.length
+      if class_has_method(ci, called[k]) == 0
+        return 0
+      end
+      k = k + 1
+    end
+    return 1
   end
 
   def infer_ivar_types_from_writers
