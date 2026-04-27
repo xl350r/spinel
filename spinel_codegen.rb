@@ -13555,6 +13555,12 @@ class Compiler
           if ridx >= 0
             return "sp_re_split(sp_re_pat_" + ridx.to_s + ", " + rc + ")"
           end
+          # Peephole: literal "".split(literal) is the empty-StrArray idiom;
+          # skip the strlen+sep scan and emit a direct allocator call.
+          recv = @nd_receiver[nid]
+          if recv >= 0 && @nd_type[recv] == "StringNode" && @nd_content[recv] == "" && @nd_type[a[0]] == "StringNode"
+            return "sp_StrArray_new()"
+          end
         end
       end
       return "sp_str_split(" + rc + ", " + compile_arg0(nid) + ")"
