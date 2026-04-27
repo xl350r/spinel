@@ -1070,8 +1070,11 @@ class Compiler
     end
     if t == "ConstantPathNode"
       if @nd_receiver[nid] >= 0
-        rname = @nd_name[@nd_receiver[nid]]
+        rname = const_ref_flat_name(@nd_receiver[nid])
         nname = @nd_name[nid]
+        if rname == ""
+          return "int"
+        end
         cpname = rname + "_" + nname
         ci = find_const_idx(cpname)
         if ci >= 0
@@ -3468,6 +3471,24 @@ class Compiler
     collect_class_with_prefix(nid, "")
   end
 
+  def collect_scoped_constant(scope_name, nid)
+    cname = scope_name + "_" + @nd_name[nid]
+    expr_id = @nd_expression[nid]
+    ct = "int"
+    if expr_id >= 0
+      ct = infer_type(expr_id)
+    end
+    ci = find_const_idx(cname)
+    if ci >= 0
+      @const_types[ci] = ct
+      @const_expr_ids[ci] = expr_id
+      return
+    end
+    @const_names.push(cname)
+    @const_types.push(ct)
+    @const_expr_ids.push(expr_id)
+  end
+
   def collect_class_with_prefix(nid, module_prefix)
     ci = @cls_names.length
     cname = ""
@@ -3522,6 +3543,9 @@ class Compiler
       body_stmts.each { |sid|
         if @nd_type[sid] == "DefNode"
           collect_class_method(ci, sid)
+        end
+        if @nd_type[sid] == "ConstantWriteNode"
+          collect_scoped_constant(cname, sid)
         end
         if @nd_type[sid] == "CallNode"
           cn = @nd_name[sid]
@@ -3668,6 +3692,9 @@ class Compiler
     body_stmts.each { |sid|
       if @nd_type[sid] == "DefNode"
         collect_class_method(ci, sid)
+      end
+      if @nd_type[sid] == "ConstantWriteNode"
+        collect_scoped_constant(cname, sid)
       end
       if @nd_type[sid] == "CallNode"
         cn = @nd_name[sid]
@@ -11405,8 +11432,11 @@ class Compiler
     end
     if t == "ConstantPathNode"
       if @nd_receiver[nid] >= 0
-        rname = @nd_name[@nd_receiver[nid]]
+        rname = const_ref_flat_name(@nd_receiver[nid])
         nname = @nd_name[nid]
+        if rname == ""
+          return @nd_name[nid]
+        end
         cpname = rname + "_" + nname
         ci = find_const_idx(cpname)
         if ci >= 0
