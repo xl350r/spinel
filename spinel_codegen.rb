@@ -6378,7 +6378,32 @@ class Compiler
         if mnames[j] == "initialize"
           k = 0
           while k < pnames.length
-            pt = infer_init_param_type(i, pnames[k])
+            # Two sources of param types feed this slot:
+            #   existing_pt: from infer_constructor_types scanning Foo.new(...)
+            #     call sites (already widened to "poly" via unify_call_types
+            #     when call sites disagree).
+            #   body_pt: from scanning the initialize body for `@x = param`
+            #     ivar writes; "int" means "no info" (the fallback).
+            # Body inference must not silently clobber call-site evidence.
+            existing_pt = "int"
+            if k < ptypes.length
+              existing_pt = ptypes[k]
+            end
+            body_pt = infer_init_param_type(i, pnames[k])
+            pt = body_pt
+            if existing_pt != "int" && existing_pt != "nil"
+              if body_pt == "int" || body_pt == "nil"
+                # Body has no info; keep call-site type.
+                pt = existing_pt
+              elsif existing_pt == "poly"
+                # Call sites already widened to poly; do not narrow.
+                pt = "poly"
+              elsif body_pt != existing_pt && body_pt != "poly"
+                # Two concrete types disagree; demote to poly.
+                @needs_rb_value = 1
+                pt = "poly"
+              end
+            end
             if k < ptypes.length
               ptypes[k] = pt
             end
