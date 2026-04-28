@@ -18619,6 +18619,18 @@ class Compiler
     if args_id >= 0
       arg_ids = get_args(args_id)
       if arg_ids.length > 0
+        if @current_method_return == "poly"
+          ret_expr = box_expr_to_poly(arg_ids[0])
+          if @in_gc_scope == 1
+            tmp = new_temp
+            emit("  sp_RbVal " + tmp + " = " + ret_expr + ";")
+            emit("  SP_GC_RESTORE();")
+            emit("  return " + tmp + ";")
+          else
+            emit("  return " + ret_expr + ";")
+          end
+          return
+        end
         rt = infer_type(arg_ids[0])
         # return nil in a nullable pointer method → return NULL
         if rt == "nil" && is_nullable_pointer_type(@current_method_return) == 1
@@ -23645,6 +23657,18 @@ class Compiler
       return
     end
     if return_type != "void"
+      if return_type == "poly"
+        ret_expr = box_expr_to_poly(last)
+        if @in_gc_scope == 1
+          tmp = new_temp
+          emit("  sp_RbVal " + tmp + " = " + ret_expr + ";")
+          emit("  SP_GC_RESTORE();")
+          emit("  return " + tmp + ";")
+        else
+          emit("  return " + ret_expr + ";")
+        end
+        return
+      end
       val = compile_expr(last)
       expr_type = infer_type(last)
       if expr_type == "lambda"
