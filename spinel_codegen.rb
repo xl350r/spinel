@@ -3800,6 +3800,12 @@ class Compiler
             end
           end
         end
+        if @nd_type[sid] == "ClassNode"
+          collect_class_with_prefix(sid, cname)
+        end
+        if @nd_type[sid] == "ModuleNode"
+          collect_module_with_prefix(sid, cname)
+        end
       }
       body_stmts.each { |sid|
         if @nd_type[sid] == "CallNode"
@@ -3950,6 +3956,16 @@ class Compiler
             collect_attr_call(ci, sid)
           end
         end
+      end
+      # Nested class / module inside class. Mirroring the
+      # nested-in-module path, the inner type is registered at top
+      # level under its outer-class–prefixed name (e.g. `A::B` →
+      # `A_B`) so a `A::B.new` call resolves via the same flat lookup.
+      if @nd_type[sid] == "ClassNode"
+        collect_class_with_prefix(sid, cname)
+      end
+      if @nd_type[sid] == "ModuleNode"
+        collect_module_with_prefix(sid, cname)
       end
     }
     # Second pass: handle includes (after all own methods are known)
