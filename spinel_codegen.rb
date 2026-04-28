@@ -12973,8 +12973,20 @@ class Compiler
     if @current_class_idx >= 0
       cidx = cls_find_method(@current_class_idx, mname)
       if cidx >= 0
-        ca = compile_call_args(nid)
         owner = find_method_owner(@current_class_idx, mname)
+        # Look up the method's owning class so we can fill in defaults
+        # from @cls_meth_defaults (issue #49).
+        owner_ci = find_class_idx(owner)
+        owner_midx = -1
+        if owner_ci >= 0
+          owner_midx = cls_find_method_direct(owner_ci, mname)
+        end
+        ca = ""
+        if owner_midx >= 0
+          ca = compile_typed_call_args(nid, owner_ci, owner_midx)
+        else
+          ca = compile_call_args(nid)
+        end
         if ca != ""
           return "sp_" + owner + "_" + sanitize_name(mname) + "(self, " + ca + ")"
         else
@@ -16271,6 +16283,15 @@ class Compiler
   def compile_constructor_args(ci, nid)
     args_id = @nd_arguments[nid]
     if args_id < 0
+      # No call-site args. If init has parameters with defaults, fill them
+      # in here (issue #49: `Counter.new` for `initialize(start = 0)`).
+      init_ci = find_init_class(ci)
+      if init_ci >= 0
+        init_idx = cls_find_method_direct(init_ci, "initialize")
+        if init_idx >= 0
+          return compile_typed_call_args(nid, init_ci, init_idx)
+        end
+      end
       return ""
     end
     arg_ids = get_args(args_id)
@@ -16469,43 +16490,72 @@ class Compiler
   end
 
   def compile_typed_call_args(nid, target_ci, target_midx)
-    # Like compile_call_args but casts arguments to match target method param types
+    # Like compile_call_args but casts arguments to match target method param
+    # types AND fills in defaults from @cls_meth_defaults for trailing
+    # parameters the caller omitted (issue #49). Returns "" only when the
+    # method takes no parameters at all.
     args_id = @nd_arguments[nid]
-    if args_id < 0
-      return ""
+    arg_ids = []
+    if args_id >= 0
+      arg_ids = get_args(args_id)
     end
-    arg_ids = get_args(args_id)
     all_ptypes = @cls_meth_ptypes[target_ci].split("|")
+    all_defaults = @cls_meth_defaults[target_ci].split("|")
     ptypes = "".split(",")
+    defaults = "".split(",")
     if target_midx < all_ptypes.length
       ptypes = all_ptypes[target_midx].split(",")
+    end
+    if target_midx < all_defaults.length
+      defaults = all_defaults[target_midx].split(",")
+    end
+    total = ptypes.length
+    if arg_ids.length > total
+      total = arg_ids.length
+    end
+    if total == 0
+      return ""
     end
     result = ""
     pcname = ""
     k = 0
-    while k < arg_ids.length
+    while k < total
       if k > 0
         result = result + ", "
       end
-      aexpr = compile_expr(arg_ids[k])
-      at = infer_type(arg_ids[k])
-      if k < ptypes.length
-        pt = ptypes[k]
-        if at == "int"
-          if is_obj_type(pt) == 1
-            # Cast int to object pointer
-            pcname = pt[4, pt.length - 4]
-            aexpr = "(sp_" + pcname + " *)" + aexpr
+      if k < arg_ids.length
+        aexpr = compile_expr(arg_ids[k])
+        at = infer_type(arg_ids[k])
+        if k < ptypes.length
+          pt = ptypes[k]
+          if at == "int"
+            if is_obj_type(pt) == 1
+              # Cast int to object pointer
+              pcname = pt[4, pt.length - 4]
+              aexpr = "(sp_" + pcname + " *)" + aexpr
+            end
+          end
+          if is_obj_type(at) == 1
+            if pt == "int"
+              # Cast object pointer to int
+              aexpr = "(mrb_int)" + aexpr
+            end
           end
         end
-        if is_obj_type(at) == 1
-          if pt == "int"
-            # Cast object pointer to int
-            aexpr = "(mrb_int)" + aexpr
+        result = result + aexpr
+      else
+        # Caller omitted this trailing arg — emit the method's default.
+        if k < defaults.length
+          def_id = defaults[k].to_i
+          if def_id >= 0
+            result = result + compile_expr(def_id)
+          else
+            result = result + "0"
           end
+        else
+          result = result + "0"
         end
       end
-      result = result + aexpr
       k = k + 1
     end
     result
