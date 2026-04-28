@@ -1676,7 +1676,7 @@ class Compiler
         if lt == "poly"
           return "poly"
         end
-        if is_array_type(lt) == 1 || is_ptr_array_type(lt) == 1
+        if is_array_type(lt) == 1
           return lt
         end
         if lt == "float"
@@ -2380,7 +2380,7 @@ class Compiler
             if bbs.length > 0
               bret = infer_type(bbs.last)
               # If block returns an array type, use it as result type
-              if is_array_type(bret) == 1 || is_ptr_array_type(bret) == 1
+              if is_array_type(bret) == 1
                 return bret
               end
             end
@@ -3545,12 +3545,12 @@ class Compiler
   # The canonical "is this an array type?" check. Use this when you need
   # to dispatch a method that's defined for every typed array — `+`,
   # `concat`, `shuffle`, `each_with_object`, `flat_map`, etc. Covers the
-  # 5 typed arrays (int/str/float/sym/poly). *_ptr_array is intentionally
-  # excluded for now: sp_PtrArray lacks `_dup`/`_shuffle` and several
-  # other helpers, and the existing dispatchers don't route ptr_array
-  # through this path correctly even on master.
+  # 5 typed arrays (int/str/float/sym/poly) and any *_ptr_array.
   def is_array_type(t)
     if t == "int_array" || t == "str_array" || t == "float_array" || t == "sym_array" || t == "poly_array"
+      return 1
+    end
+    if is_ptr_array_type(t) == 1
       return 1
     end
     0
@@ -13873,7 +13873,7 @@ class Compiler
         @needs_string_helpers = 1
         return "sp_poly_add(" + compile_expr(recv) + ", " + box_expr_to_poly(@nd_arguments[nid] >= 0 ? get_args(@nd_arguments[nid])[0] : -1) + ")"
       end
-      if is_array_type(lt) == 1 || is_ptr_array_type(lt) == 1
+      if is_array_type(lt) == 1
         rc = compile_expr_gc_rooted(recv)
         arg = compile_arg0(nid)
         pfx = array_c_prefix(lt)
@@ -15155,12 +15155,12 @@ class Compiler
       pfx = array_c_prefix(recv_type)
       return "sp_" + pfx + "_get(" + rc + ", rand() % sp_" + pfx + "_length(" + rc + "))"
     end
-    if mname == "shuffle" && (is_array_type(recv_type) == 1 || is_ptr_array_type(recv_type) == 1)
+    if mname == "shuffle" && is_array_type(recv_type) == 1
       @needs_rand = 1
       pfx = array_c_prefix(recv_type)
       return "sp_" + pfx + "_shuffle(" + rc + ")"
     end
-    if mname == "shuffle!" && (is_array_type(recv_type) == 1 || is_ptr_array_type(recv_type) == 1)
+    if mname == "shuffle!" && is_array_type(recv_type) == 1
       @needs_rand = 1
       pfx = array_c_prefix(recv_type)
       emit("  sp_" + pfx + "_shuffle_bang(" + rc + ");")
@@ -18734,7 +18734,7 @@ class Compiler
     if mname == "concat"
       if recv >= 0
         rt = infer_type(recv)
-        if is_array_type(rt) == 1 || is_ptr_array_type(rt) == 1
+        if is_array_type(rt) == 1
           rc = compile_expr_gc_rooted(recv)
           arg = compile_arg0(nid)
           pfx = array_c_prefix(rt)
@@ -21029,7 +21029,7 @@ class Compiler
     result = new_temp
     emit("  " + obj_ct + " " + result + " = " + obj_arg + ";")
     tmp_i = new_temp
-    if is_array_type(rt) == 1 || is_ptr_array_type(rt) == 1
+    if is_array_type(rt) == 1
       pfx = array_c_prefix(rt)
       emit("  {")
       @indent = @indent + 1
@@ -21790,7 +21790,7 @@ class Compiler
       end
     end
     # Fall back to receiver type if block doesn't return an array
-    if is_array_type(block_ret) == 0 && is_ptr_array_type(block_ret) == 0
+    if is_array_type(block_ret) == 0
       block_ret = rt
     end
     @needs_gc = 1
