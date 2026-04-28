@@ -3093,6 +3093,34 @@ class Compiler
     "sp_Tuple_" + tuple_elem_types_str(t).split(",").join("_")
   end
 
+  # Whether a tuple element type must be traced by the GC scan function.
+  # Scalars (int/float/bool/symbol) are pure values; pointer-to-GC-object
+  # element types must be marked, otherwise the GC frees the inner object
+  # while the tuple keeps a dangling pointer.
+  def tuple_field_needs_mark(et)
+    if et == "poly"
+      return 1
+    end
+    if et == "int" || et == "float" || et == "bool" || et == "symbol" || et == "void" || et == "nil"
+      return 0
+    end
+    type_is_pointer(et)
+  end
+
+  # Returns the scan function name for the tuple, or "NULL" if no field
+  # requires marking.
+  def tuple_scan_name(t)
+    parts = tuple_elem_types_str(t).split(",")
+    fi = 0
+    while fi < parts.length
+      if tuple_field_needs_mark(parts[fi]) == 1
+        return tuple_c_name(t) + "_scan"
+      end
+      fi = fi + 1
+    end
+    "NULL"
+  end
+
   def register_tuple_type(t)
     if is_tuple_type(t) == 1
       k = 0
@@ -8099,6 +8127,33 @@ class Compiler
         @deferred_tuple << " } "
         @deferred_tuple << name
         @deferred_tuple << ";\n"
+        # GC scan function — only emit when at least one field is a GC ref.
+        # Without this the tuple's children are collected while the tuple
+        # itself is still alive, leaving dangling pointers in the fields.
+        needs_scan = 0
+        fi = 0
+        while fi < parts.length
+          if tuple_field_needs_mark(parts[fi]) == 1
+            needs_scan = 1
+          end
+          fi = fi + 1
+        end
+        if needs_scan == 1
+          body = ""
+          fi = 0
+          while fi < parts.length
+            if tuple_field_needs_mark(parts[fi]) == 1
+              field = "_t->_" + fi.to_s
+              if parts[fi] == "poly"
+                body = body + " sp_mark_rbval(" + field + ");"
+              else
+                body = body + " sp_gc_mark((void *)" + field + ");"
+              end
+            end
+            fi = fi + 1
+          end
+          @deferred_tuple << "static void " + name + "_scan(void *_p) { " + name + " *_t = (" + name + " *)_p;" + body + " }\n"
+        end
         k = k + 1
       end
     end
@@ -14449,7 +14504,7 @@ class Compiler
       tname = tuple_c_name(tt)
       sep = compile_arg0(nid)
       tmp = new_temp
-      emit("  " + tname + " *" + tmp + " = (" + tname + " *)sp_gc_alloc(sizeof(" + tname + "), NULL, NULL);")
+      emit("  " + tname + " *" + tmp + " = (" + tname + " *)sp_gc_alloc(sizeof(" + tname + "), NULL, " + tuple_scan_name(tt) + ");")
       emit("  { const char *_p = strstr(" + rc + ", " + sep + ");")
       emit("    if (_p) { " + tmp + "->_0 = sp_str_substr(" + rc + ", 0, _p - " + rc + "); " + tmp + "->_1 = " + sep + "; " + tmp + "->_2 = sp_str_substr(" + rc + ", _p - " + rc + " + strlen(" + sep + "), strlen(_p) - strlen(" + sep + ")); }")
       emit("    else { " + tmp + "->_0 = " + rc + "; " + tmp + "->_1 = \"\"; " + tmp + "->_2 = \"\"; } }")
@@ -14462,7 +14517,7 @@ class Compiler
       tname = tuple_c_name(tt)
       sep = compile_arg0(nid)
       tmp = new_temp
-      emit("  " + tname + " *" + tmp + " = (" + tname + " *)sp_gc_alloc(sizeof(" + tname + "), NULL, NULL);")
+      emit("  " + tname + " *" + tmp + " = (" + tname + " *)sp_gc_alloc(sizeof(" + tname + "), NULL, " + tuple_scan_name(tt) + ");")
       emit("  { size_t _sl = strlen(" + rc + "), _pl = strlen(" + sep + "); const char *_last = NULL;")
       emit("    for (const char *_p = " + rc + "; (_p = strstr(_p, " + sep + ")); _p += _pl) _last = _p;")
       emit("    if (_last) { " + tmp + "->_0 = sp_str_substr(" + rc + ", 0, _last - " + rc + "); " + tmp + "->_1 = " + sep + "; " + tmp + "->_2 = sp_str_substr(" + rc + ", _last - " + rc + " + _pl, _sl - (_last - " + rc + ") - _pl); }")
@@ -14945,7 +15000,7 @@ class Compiler
       name = tuple_c_name(tt)
       arg = compile_arg0(nid)
       tmp = new_temp
-      emit("  " + name + " *" + tmp + " = (" + name + " *)sp_gc_alloc(sizeof(" + name + "), NULL, NULL);")
+      emit("  " + name + " *" + tmp + " = (" + name + " *)sp_gc_alloc(sizeof(" + name + "), NULL, " + tuple_scan_name(tt) + ");")
       emit("  " + tmp + "->_0 = " + rc + " / " + arg + ";")
       emit("  " + tmp + "->_1 = sp_imod(" + rc + ", " + arg + ");")
       return tmp
@@ -15045,7 +15100,7 @@ class Compiler
       tname = tuple_c_name(tt)
       arg = compile_arg0(nid)
       tmp = new_temp
-      emit("  " + tname + " *" + tmp + " = (" + tname + " *)sp_gc_alloc(sizeof(" + tname + "), NULL, NULL);")
+      emit("  " + tname + " *" + tmp + " = (" + tname + " *)sp_gc_alloc(sizeof(" + tname + "), NULL, " + tuple_scan_name(tt) + ");")
       emit("  " + tmp + "->_0 = (mrb_int)floor(" + rc + " / " + arg + ");")
       emit("  " + tmp + "->_1 = " + rc + " - " + tmp + "->_0 * " + arg + ";")
       return tmp
@@ -15124,7 +15179,7 @@ class Compiler
         tt = "tuple:" + parts.join(",")
         register_tuple_type(tt)
         tname = tuple_c_name(tt)
-        emit("    " + tname + " *" + pair_tmp + " = (" + tname + " *)sp_gc_alloc(sizeof(" + tname + "), NULL, NULL);")
+        emit("    " + tname + " *" + pair_tmp + " = (" + tname + " *)sp_gc_alloc(sizeof(" + tname + "), NULL, " + tuple_scan_name(tt) + ");")
         emit("    " + pair_tmp + "->_0 = sp_" + pfx_recv + "_get(" + rc + ", " + itmp + ");")
         k = 0
         while k < arg_rcs.length
@@ -15343,7 +15398,7 @@ class Compiler
       end
       emit("    if (" + bexpr + ") sp_" + pfx + "_push(" + tmp_t + ", lv_" + bp1 + "); else sp_" + pfx + "_push(" + tmp_f + ", lv_" + bp1 + ");")
       emit("  }")
-      emit("  " + name + " *" + tmp_res + " = (" + name + " *)sp_gc_alloc(sizeof(" + name + "), NULL, NULL);")
+      emit("  " + name + " *" + tmp_res + " = (" + name + " *)sp_gc_alloc(sizeof(" + name + "), NULL, " + tuple_scan_name(tt) + ");")
       emit("  " + tmp_res + "->_0 = " + tmp_t + ";")
       emit("  " + tmp_res + "->_1 = " + tmp_f + ";")
       return tmp_res
@@ -15371,7 +15426,7 @@ class Compiler
         emit("    if (_v > " + tmp_max + ") " + tmp_max + " = _v;")
       end
       emit("  }")
-      emit("  " + name + " *" + tmp + " = (" + name + " *)sp_gc_alloc(sizeof(" + name + "), NULL, NULL);")
+      emit("  " + name + " *" + tmp + " = (" + name + " *)sp_gc_alloc(sizeof(" + name + "), NULL, " + tuple_scan_name(tt) + ");")
       emit("  " + tmp + "->_0 = " + tmp_min + ";")
       emit("  " + tmp + "->_1 = " + tmp_max + ";")
       return tmp
@@ -15938,7 +15993,7 @@ class Compiler
         itmp = new_temp
         emit("  sp_PtrArray *" + tmp + " = sp_PtrArray_new();")
         emit("  for (mrb_int " + itmp + " = 0; " + itmp + " < " + rc + "->len; " + itmp + "++) {")
-        emit("    " + tname + " *_tp = (" + tname + " *)sp_gc_alloc(sizeof(" + tname + "), NULL, NULL);")
+        emit("    " + tname + " *_tp = (" + tname + " *)sp_gc_alloc(sizeof(" + tname + "), NULL, " + tuple_scan_name(tt) + ");")
         emit("    _tp->_0 = " + rc + "->order[" + itmp + "];")
         emit("    _tp->_1 = sp_StrIntHash_get(" + rc + ", " + rc + "->order[" + itmp + "]);")
         emit("    sp_PtrArray_push(" + tmp + ", _tp);")
@@ -16044,7 +16099,7 @@ class Compiler
         itmp = new_temp
         emit("  sp_PtrArray *" + tmp + " = sp_PtrArray_new();")
         emit("  for (mrb_int " + itmp + " = 0; " + itmp + " < " + rc + "->len; " + itmp + "++) {")
-        emit("    " + tname + " *_tp = (" + tname + " *)sp_gc_alloc(sizeof(" + tname + "), NULL, NULL);")
+        emit("    " + tname + " *_tp = (" + tname + " *)sp_gc_alloc(sizeof(" + tname + "), NULL, " + tuple_scan_name(tt) + ");")
         emit("    _tp->_0 = " + rc + "->order[" + itmp + "];")
         emit("    _tp->_1 = sp_StrStrHash_get(" + rc + ", " + rc + "->order[" + itmp + "]);")
         emit("    sp_PtrArray_push(" + tmp + ", _tp);")
@@ -17361,20 +17416,8 @@ class Compiler
     if is_tuple_type(arr_type) == 1
       name = tuple_c_name(arr_type)
       tmp = new_temp
-      has_ptr = 0
       parts = tuple_elem_types_str(arr_type).split(",")
-      fi = 0
-      while fi < parts.length
-        if type_is_pointer(parts[fi]) == 1
-          has_ptr = 1
-        end
-        fi = fi + 1
-      end
-      scan_fn = "NULL"
-      if has_ptr == 1
-        scan_fn = name + "_gc_scan"
-      end
-      emit("  " + name + " *" + tmp + " = (" + name + " *)sp_gc_alloc(sizeof(" + name + "), NULL, " + scan_fn + ");")
+      emit("  " + name + " *" + tmp + " = (" + name + " *)sp_gc_alloc(sizeof(" + name + "), NULL, " + tuple_scan_name(arr_type) + ");")
       k = 0
       while k < elems.length && k < parts.length
         emit("  " + tmp + "->_" + k.to_s + " = " + compile_expr(elems[k]) + ";")
