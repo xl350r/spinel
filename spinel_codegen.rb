@@ -23455,7 +23455,15 @@ class Compiler
     end
     if return_type != "void"
       if return_type == "poly"
-        emit("  return " + box_expr_to_poly(last) + ";")
+        ret_expr = box_expr_to_poly(last)
+        if @in_gc_scope == 1
+          tmp = new_temp
+          emit("  sp_RbVal " + tmp + " = " + ret_expr + ";")
+          emit("  SP_GC_RESTORE();")
+          emit("  return " + tmp + ";")
+        else
+          emit("  return " + ret_expr + ";")
+        end
         return
       end
       val = compile_expr(last)
