@@ -1885,8 +1885,12 @@ class Compiler
       return @meth_return_types[mi]
     end
 
-    # Bare method call in class context
-    if @current_class_idx >= 0
+    # Bare (no-receiver) method call resolved against the enclosing
+    # class's method table. Only for `recv < 0` — without that guard,
+    # a `Fiber.yield ...` (which has a receiver) inside a class body
+    # would short-circuit here returning the int default and never
+    # reach the Fiber.yield → poly branch further down.
+    if recv < 0 && @current_class_idx >= 0
       mr = cls_method_return(@current_class_idx, mname)
       return mr
     end
