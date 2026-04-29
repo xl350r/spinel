@@ -14660,6 +14660,13 @@ class Compiler
         end
         return "sp_StringIO_new()"
       end
+      # `Object.new` — a sentinel allocation. Each call returns a fresh
+      # GC-managed pointer so identity comparisons (`==` / `equal?`)
+      # behave as in Ruby (distinct instances are not equal).
+      if cname == "Object"
+        @needs_gc = 1
+        return "sp_Object_new()"
+      end
       ci = find_class_idx(cname)
       if ci >= 0
         return "sp_" + cname + "_new(" + compile_constructor_args(ci, nid) + ")"
@@ -16763,6 +16770,15 @@ class Compiler
     # frozen? on any type
     if mname == "frozen?"
       return "TRUE"
+    end
+
+    # `freeze` on any object — returns the receiver. The string /
+    # mutable-str dispatchers earlier in compile_call_expr handle their
+    # own variants; this catches everything else (obj_*, sp_Object *,
+    # array types, etc.) so `expr.freeze` in a const initializer (issue
+    # #63) doesn't fall through to the "0" fallback.
+    if mname == "freeze"
+      return rc
     end
 
     # positive? / negative?
