@@ -148,6 +148,7 @@ class Compiler
     @current_method_name = ""
     @current_lexical_scope = ""
     @current_method_return = ""
+    @current_method_block_param = ""
     @in_main = 0
     @in_loop = 0
     @hoisted_strlen_var = ""
@@ -10008,6 +10009,20 @@ class Compiler
     (pts.length > 0 && pts.last == "proc") ? 1 : 0
   end
 
+  # Returns the name of a method's `&block` parameter (the trailing
+  # proc-typed slot in pnames), or "" if the method doesn't take
+  # one. Ruby syntax requires `&block` to be the trailing param, so
+  # a proc-typed slot in any other position is a positional proc
+  # argument. Mirrors cls_method_has_block_param's trailing-only
+  # check. Used at method-emit time to set @current_method_block_param
+  # so block_given? can resolve to (lv_<name> != NULL).
+  def find_block_param_name(pnames, ptypes)
+    if ptypes.length > 0 && ptypes.last == "proc"
+      return pnames.last
+    end
+    ""
+  end
+
   def cls_find_method_direct(ci, mname)
     mnames = @cls_meth_names[ci].split(";")
     j = 0
@@ -10493,6 +10508,7 @@ class Compiler
     @current_class_idx = ci
     @current_method_name = mname
     @current_method_return = rt
+    @current_method_block_param = find_block_param_name(pnames, ptypes)
     @indent = 1
     @in_gc_scope = 0
 
@@ -10555,6 +10571,7 @@ class Compiler
     pop_scope
     @current_class_idx = -1
     @current_method_name = ""
+    @current_method_block_param = ""
     @in_yield_method = 0
     @indent = 0
     emit_raw("  return " + c_return_default(rt) + ";")
@@ -10567,6 +10584,7 @@ class Compiler
     @current_class_idx = ci
     @current_method_name = mname
     @current_method_return = rt
+    @current_method_block_param = find_block_param_name(pnames, ptypes)
     @indent = 1
     @in_gc_scope = 0
 
@@ -10591,6 +10609,7 @@ class Compiler
     pop_scope
     @current_class_idx = -1
     @current_method_name = ""
+    @current_method_block_param = ""
     @indent = 0
     emit_raw("  return " + c_return_default(rt) + ";")
     emit_raw("}")
@@ -10683,6 +10702,7 @@ class Compiler
 
     pnames = @meth_param_names[mi].split(",")
     ptypes = @meth_param_types[mi].split(",")
+    @current_method_block_param = find_block_param_name(pnames, ptypes)
 
     yp = ""
     if @meth_has_yield[mi] == 1
@@ -10744,6 +10764,7 @@ class Compiler
     rt = @meth_return_types[mi]
     pop_scope
     @current_method_name = ""
+    @current_method_block_param = ""
     @in_yield_method = 0
     @indent = 0
     emit_raw("  return " + c_return_default(rt) + ";")
@@ -13333,6 +13354,15 @@ class Compiler
       end
     end
     if mname == "block_given?"
+      # &block parameter form takes priority: when the enclosing method
+      # declares `def m(&block)`, the block is bound to `lv_block`, not
+      # the implicit yield slot — so check the explicit param first.
+      # `body_has_yield` flags any method containing block_given? as a
+      # yield-method, which would otherwise route through the `_block`
+      # slot and miss the actually-bound `&block` param.
+      if @current_method_block_param != ""
+        return "(lv_" + @current_method_block_param + " != NULL)"
+      end
       if @in_yield_method == 1
         return "(_block != NULL)"
       end
