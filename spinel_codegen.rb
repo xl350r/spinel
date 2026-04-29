@@ -22259,6 +22259,38 @@ class Compiler
   def compile_each_block(nid)
     old = @in_loop
     @in_loop = 1
+    # Fuse hash.keys.each → direct order-array loop to avoid intermediate sp_IntArray allocation
+    recv_nid = @nd_receiver[nid]
+    if recv_nid >= 0 && @nd_type[recv_nid] == "CallNode" && @nd_name[recv_nid] == "keys"
+      hash_nid = @nd_receiver[recv_nid]
+      if hash_nid >= 0
+        ht = infer_type(hash_nid)
+        if ht == "int_str_hash" || ht == "str_int_hash" || ht == "str_str_hash" || ht == "sym_int_hash" || ht == "sym_str_hash" || ht == "sym_poly_hash" || ht == "str_poly_hash"
+          hrc = compile_expr_gc_rooted(hash_nid)
+          bp1 = get_block_param(nid, 0)
+          has_bp = 1
+          if bp1 == ""
+            has_bp = 0
+            bp1 = "_x"
+          end
+          tmp = new_temp
+          emit("  for (mrb_int " + tmp + " = 0; " + tmp + " < " + hrc + "->len; " + tmp + "++) {")
+          if has_bp == 1
+            if ht == "sym_int_hash" || ht == "sym_str_hash" || ht == "sym_poly_hash"
+              emit("    lv_" + bp1 + " = (sp_sym)" + hrc + "->order[" + tmp + "];")
+            else
+              emit("    lv_" + bp1 + " = " + hrc + "->order[" + tmp + "];")
+            end
+          end
+          @indent = @indent + 1
+          compile_stmts_body(@nd_body[@nd_block[nid]])
+          @indent = @indent - 1
+          emit("  }")
+          @in_loop = old
+          return
+        end
+      end
+    end
     rt = infer_type(@nd_receiver[nid])
     rc = compile_expr_gc_rooted(@nd_receiver[nid])
     bp1 = get_block_param(nid, 0)

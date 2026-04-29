@@ -403,7 +403,7 @@ static const char*sp_str_sub_range(const char*s,mrb_int start,mrb_int len){mrb_i
    hoisted codepoint count.  We don't need it for correctness, but keeping the
    ABI lets callers pass it without a wrapper. */
 static const char*sp_str_sub_range_len(const char*s,mrb_int cl,mrb_int start,mrb_int len){if(start<0)start+=cl;if(start<0)start=0;if(start>=cl||len<=0){return &("\xff" "")[1];}if(start+len>cl)len=cl-start;size_t boff=sp_utf8_byte_offset(s,start);size_t bend=sp_utf8_byte_offset(s+boff,len)+boff;size_t blen=bend-boff;if(len==1&&blen==1){unsigned char c=(unsigned char)s[boff];if(!sp_char_cache_init){for(int i=0;i<256;i++){sp_char_cache[i][0]=(char)0xff;sp_char_cache[i][1]=(char)i;sp_char_cache[i][2]=0;}sp_char_cache_init=1;}return &sp_char_cache[c][1];}char*r=sp_str_alloc_raw(blen+1);memcpy(r,s+boff,blen);r[blen]=0;return r;}
-static const char*sp_sprintf(const char*fmt,...){char*b=sp_str_alloc_raw(4096);va_list ap;va_start(ap,fmt);vsnprintf(b,4096,fmt,ap);va_end(ap);return b;}
+static const char*sp_sprintf(const char*fmt,...){char _sp_tmp[4096];va_list ap;va_start(ap,fmt);int _sp_n=vsnprintf(_sp_tmp,sizeof(_sp_tmp),fmt,ap);va_end(ap);if(_sp_n<0)_sp_n=0;if(_sp_n>=(int)sizeof(_sp_tmp))_sp_n=(int)sizeof(_sp_tmp)-1;char*b=sp_str_alloc(_sp_n);memcpy(b,_sp_tmp,_sp_n);return b;}
 /* Use a temp pointer for realloc so the original buffer is not leaked
    on allocation failure. Match the perror+exit pattern used elsewhere
    (see sp_IntArray_replace) instead of returning a partial result. */
