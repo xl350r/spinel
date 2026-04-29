@@ -4405,6 +4405,19 @@ class Compiler
           if old == "int" || old == "nil"
             types[k] = new_type
             @cls_ivar_types[ci] = types.join(";")
+          elsif (old == "str_poly_hash" || old == "sym_poly_hash") && new_type != "poly"
+            # Upgrade generic poly hash to a more specific hash type
+            if new_type == "str_int_hash" || new_type == "str_str_hash" || new_type == "str_poly_hash" || new_type == "int_str_hash" || new_type == "sym_int_hash" || new_type == "sym_str_hash" || new_type == "sym_poly_hash"
+              types[k] = new_type
+              @cls_ivar_types[ci] = types.join(";")
+            else
+              types[k] = "poly"
+              @cls_ivar_types[ci] = types.join(";")
+            end
+          elsif old == "str_int_hash" && new_type == "str_str_hash"
+            # Allow upgrading int-value hash to string-value hash when strings are stored
+            types[k] = new_type
+            @cls_ivar_types[ci] = types.join(";")
           elsif old != new_type && old != "poly"
             # Nullable pattern: nil + T → T?, T + nil → T?
             if new_type == "nil" && is_nullable_pointer_type(old) == 1
@@ -5985,9 +5998,46 @@ class Compiler
     if @nd_type[nid] == "InstanceVariableWriteNode"
       if @current_class_idx >= 0
         iname = @nd_name[nid]
-        at = infer_type(@nd_expression[nid])
+        expr_iw = @nd_expression[nid]
+        at = infer_type(expr_iw)
         if at != "int" && at != "nil"
-          update_ivar_type(@current_class_idx, iname, at)
+          # Empty hash literals give no value-type information; skip to avoid
+          # overwriting a type already refined by bracket-assign analysis.
+          skip_iw = 0
+          if @nd_type[expr_iw] == "HashNode"
+            iw_elems = parse_id_list(@nd_elements[expr_iw])
+            if iw_elems.length == 0
+              skip_iw = 1
+            end
+          end
+          if skip_iw == 0
+            update_ivar_type(@current_class_idx, iname, at)
+          end
+        end
+      end
+    end
+    # Bracket-assign on ivar: @hash[key] = val — refine hash value type
+    if @nd_type[nid] == "CallNode" && @nd_name[nid] == "[]="
+      if @current_class_idx >= 0
+        brecv = @nd_receiver[nid]
+        if brecv >= 0 && @nd_type[brecv] == "InstanceVariableReadNode"
+          iname_h = @nd_name[brecv]
+          bargs_id = @nd_arguments[nid]
+          if bargs_id >= 0
+            barg_ids = get_args(bargs_id)
+            if barg_ids.length >= 2
+              vt_h = infer_type(barg_ids[1])
+              old_ht = cls_ivar_type(@current_class_idx, iname_h)
+              if vt_h == "string"
+                if old_ht == "str_int_hash" || old_ht == "str_poly_hash"
+                  update_ivar_type(@current_class_idx, iname_h, "str_str_hash")
+                end
+                if old_ht == "sym_int_hash" || old_ht == "sym_poly_hash"
+                  update_ivar_type(@current_class_idx, iname_h, "sym_str_hash")
+                end
+              end
+            end
+          end
         end
       end
     end
@@ -10647,7 +10697,18 @@ class Compiler
           end
           if @nd_type[sid] == "InstanceVariableWriteNode"
             ivar = sanitize_ivar(@nd_name[sid])
-            val = compile_expr(@nd_expression[sid])
+            expr_ec = @nd_expression[sid]
+            val = ""
+            if @nd_type[expr_ec] == "HashNode" && @current_class_idx >= 0
+              ec_elems = parse_id_list(@nd_elements[expr_ec])
+              if ec_elems.length == 0
+                ec_ivar_ht = cls_ivar_type(@current_class_idx, @nd_name[sid])
+                val = compile_empty_hash_new(ec_ivar_ht)
+              end
+            end
+            if val == ""
+              val = compile_expr(expr_ec)
+            end
             emit_raw("  " + self_arrow + ivar + " = " + val + ";")
           else
             if @nd_type[sid] != "SuperNode"
@@ -16677,8 +16738,32 @@ class Compiler
           if oci2 >= 0
             midx2 = cls_find_method_direct(oci2, mname)
           end
+          # Check if the method has a &block param and the call provides a block
+          has_blk_param = 0
+          if midx2 >= 0 && @nd_block[nid] >= 0
+            all_ptypes_obj = @cls_meth_ptypes[oci2].split("|")
+            if midx2 < all_ptypes_obj.length
+              ptypes_obj = all_ptypes_obj[midx2].split(",")
+              pki_obj = 0
+              while pki_obj < ptypes_obj.length
+                if ptypes_obj[pki_obj] == "proc"
+                  has_blk_param = 1
+                end
+                pki_obj = pki_obj + 1
+              end
+            end
+          end
           ca = ""
-          if midx2 >= 0
+          if has_blk_param == 1
+            @needs_proc = 1
+            blk_proc_obj = compile_proc_literal(nid)
+            ca = compile_call_args(nid)
+            if ca != ""
+              ca = ca + ", " + blk_proc_obj
+            else
+              ca = blk_proc_obj
+            end
+          elsif midx2 >= 0
             ca = compile_typed_call_args(nid, oci2, midx2)
           else
             ca = compile_call_args(nid)
@@ -17637,12 +17722,41 @@ class Compiler
     tmp
   end
 
+  def compile_empty_hash_new(ht)
+    @needs_gc = 1
+    if ht == "str_str_hash"
+      @needs_str_str_hash = 1
+      return "sp_StrStrHash_new()"
+    end
+    if ht == "int_str_hash"
+      @needs_int_str_hash = 1
+      return "sp_IntStrHash_new()"
+    end
+    if ht == "sym_int_hash"
+      @needs_sym_int_hash = 1
+      return "sp_SymIntHash_new()"
+    end
+    if ht == "sym_str_hash"
+      @needs_sym_str_hash = 1
+      return "sp_SymStrHash_new()"
+    end
+    if ht == "sym_poly_hash"
+      @needs_sym_poly_hash = 1
+      return "sp_SymPolyHash_new()"
+    end
+    if ht == "str_poly_hash"
+      @needs_str_poly_hash = 1
+      return "sp_StrPolyHash_new()"
+    end
+    @needs_str_int_hash = 1
+    "sp_StrIntHash_new()"
+  end
+
   def compile_hash_literal(nid)
     @needs_gc = 1
     elems = parse_id_list(@nd_elements[nid])
     if elems.length == 0
-      @needs_str_int_hash = 1
-      return "sp_StrIntHash_new()"
+      return compile_empty_hash_new("str_int_hash")
     end
     ht = infer_hash_val_type(nid)
     if ht == "int_str_hash"
@@ -17941,7 +18055,19 @@ class Compiler
       return
     end
     if t == "InstanceVariableWriteNode"
-      val = compile_expr(@nd_expression[nid])
+      expr_nid2 = @nd_expression[nid]
+      val = ""
+      # For empty hash literals, create the hash with the ivar's inferred type
+      if @nd_type[expr_nid2] == "HashNode" && @current_class_idx >= 0
+        h_elems2 = parse_id_list(@nd_elements[expr_nid2])
+        if h_elems2.length == 0
+          ivar_ht2 = cls_ivar_type(@current_class_idx, @nd_name[nid])
+          val = compile_empty_hash_new(ivar_ht2)
+        end
+      end
+      if val == ""
+        val = compile_expr(expr_nid2)
+      end
       # Check if we're in a module class method
       mod_ivar = 0
       mi3 = 0
