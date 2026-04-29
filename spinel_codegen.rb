@@ -22273,17 +22273,42 @@ class Compiler
             has_bp = 0
             bp1 = "_x"
           end
+          # Pick the key type. Sym-keyed hashes store the sym id in
+          # `order[]` as a plain mrb_int — cast to sp_sym so block-body
+          # dispatchers see the right type.
+          is_sym_key = 0
+          if ht == "sym_int_hash" || ht == "sym_str_hash" || ht == "sym_poly_hash"
+            is_sym_key = 1
+          end
+          is_str_key = 0
+          if ht == "str_int_hash" || ht == "str_str_hash" || ht == "str_poly_hash"
+            is_str_key = 1
+          end
+          key_type = "int"
+          if is_sym_key == 1
+            key_type = "symbol"
+          elsif is_str_key == 1
+            key_type = "string"
+          end
           tmp = new_temp
           emit("  for (mrb_int " + tmp + " = 0; " + tmp + " < " + hrc + "->len; " + tmp + "++) {")
+          # Inline-declare `lv_<bp1>` with the key's C type so a block
+          # param that shadows an outer same-named local of a different
+          # type compiles correctly (mirrors PR #115's pattern).
           if has_bp == 1
-            if ht == "sym_int_hash" || ht == "sym_str_hash" || ht == "sym_poly_hash"
-              emit("    lv_" + bp1 + " = (sp_sym)" + hrc + "->order[" + tmp + "];")
+            if is_sym_key == 1
+              emit("    sp_sym lv_" + bp1 + " = (sp_sym)" + hrc + "->order[" + tmp + "];")
             else
-              emit("    lv_" + bp1 + " = " + hrc + "->order[" + tmp + "];")
+              emit("    " + c_type(key_type) + " lv_" + bp1 + " = " + hrc + "->order[" + tmp + "];")
             end
           end
           @indent = @indent + 1
+          push_scope
+          if has_bp == 1
+            declare_var(bp1, key_type)
+          end
           compile_stmts_body(@nd_body[@nd_block[nid]])
+          pop_scope
           @indent = @indent - 1
           emit("  }")
           @in_loop = old
