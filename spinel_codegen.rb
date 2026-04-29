@@ -2088,6 +2088,10 @@ class Compiler
         if lt == "mutable_str"
           return "mutable_str"
         end
+        # Array `<<` returns the recv (so `(arr << x) << y` chains).
+        if is_array_type(lt) == 1
+          return lt
+        end
       end
       return "int"
     end
@@ -15978,6 +15982,34 @@ class Compiler
       end
       if lt == "string"
         return "sp_str_concat(" + compile_expr(recv) + ", " + compile_arg0(nid) + ")"
+      end
+      # Array `<<` is push, not bit-shift. The compile_call_expr path
+      # also has a push branch for direct `arr.push(x)` style calls,
+      # but the operator form lands here.
+      if lt == "int_array"
+        @needs_int_array = 1
+        rc = compile_expr_gc_rooted(recv)
+        return "(sp_IntArray_push(" + rc + ", " + compile_arg0(nid) + "), " + rc + ")"
+      end
+      if lt == "float_array"
+        @needs_float_array = 1
+        rc = compile_expr_gc_rooted(recv)
+        return "(sp_FloatArray_push(" + rc + ", " + compile_arg0(nid) + "), " + rc + ")"
+      end
+      if lt == "str_array"
+        @needs_str_array = 1
+        rc = compile_expr_gc_rooted(recv)
+        return "(sp_StrArray_push(" + rc + ", " + compile_arg0(nid) + "), " + rc + ")"
+      end
+      if lt == "sym_array"
+        @needs_int_array = 1
+        rc = compile_expr_gc_rooted(recv)
+        return "(sp_IntArray_push(" + rc + ", " + compile_arg0(nid) + "), " + rc + ")"
+      end
+      if is_ptr_array_type(lt) == 1
+        @needs_ptr_array = 1
+        rc = compile_expr_gc_rooted(recv)
+        return "(sp_PtrArray_push(" + rc + ", " + compile_arg0(nid) + "), " + rc + ")"
       end
       return "(" + compile_expr(recv) + " << " + compile_arg0(nid) + ")"
     end
