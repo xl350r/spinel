@@ -1732,6 +1732,31 @@ class Compiler
   end
 
 
+  # Returns the inferred C type ("int", "string", "poly", "obj_<Cname>",
+  # ...) for the value a CallNode evaluates to.
+  #
+  # Symmetric with `compile_call_expr` (which returns the C expression
+  # for the same node). The two walk identical branch structure:
+  #
+  #   infer_call_type        compile_call_expr
+  #   infer_operator_type  ↔ compile_operator_expr
+  #   infer_constructor_   ↔ compile_constructor_expr
+  #     type
+  #   infer_constant_recv_ ↔ compile_constant_recv_expr
+  #     type
+  #
+  # The non-paired helpers (infer_comparison_type, infer_method_name_
+  # type, infer_recv_method_type, infer_open_class_type) recognise call
+  # shapes whose codegen is inlined into compile_call_expr directly
+  # rather than factored out, but the dispatch order matches.
+  #
+  # Maintenance rule: when you add a new call shape, you almost always
+  # need both. Forgetting the inference half is the failure mode in
+  # #127 — the dispatch emitted the right C function call, but the LHS
+  # local was typed `mrb_int` because no inference branch claimed the
+  # shape, so `lv_s = sp_M_cls_greet()` mis-typed an `const char *`
+  # return. Mirror new cases in both functions, in the same order, with
+  # the same recogniser logic.
   def infer_call_type(nid)
     mname = @nd_name[nid]
     recv = @nd_receiver[nid]
@@ -14385,6 +14410,11 @@ class Compiler
     tmp_fb
   end
 
+  # Returns the C expression for a CallNode. Symmetric with
+  # `infer_call_type` (which returns the call's C type) — see the
+  # docstring there for the maintenance rule on adding new shapes.
+  # Branch order in this function mirrors infer_call_type's order so
+  # the two stay diff-able.
   def compile_call_expr(nid)
     mname = @nd_name[nid]
     recv = @nd_receiver[nid]
