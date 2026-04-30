@@ -11928,7 +11928,22 @@ class Compiler
       j = j + 1
     end
 
-    if bid >= 0
+    # PR #124 trampoline (`def m(&b); instance_eval(&b); end`):
+    # the body is dead at runtime — every call site `recv.m { ... }`
+    # gets splice-rewritten by try_yield_or_trampoline_dispatch.
+    # Skipping the body compilation avoids the warn-and-emit-0
+    # fallback that compile_no_recv_call_expr would hit for the dead
+    # `instance_eval(&block)` call inside (which would otherwise fire
+    # one warning per trampoline definition every codegen run). The
+    # fallback `return c_return_default(rt);` below still provides a
+    # syntactically-valid but unreachable C body for the linker.
+    is_tramp = 0
+    if midx >= 0
+      if is_instance_eval_trampoline(ci, midx) == 1
+        is_tramp = 1
+      end
+    end
+    if bid >= 0 && is_tramp == 0
       declare_method_locals(bid, pnames)
       if @in_gc_scope == 0
         if @needs_gc == 1
