@@ -3022,6 +3022,13 @@ class Compiler
       end
       return ""
     end
+    if mname == "difference"
+      if recv >= 0
+        rt = infer_type(recv)
+        return rt if rt == "int_array" || rt == "sym_array" || rt == "str_array" || rt == "float_array"
+      end
+      return ""
+    end
     ""
   end
 
@@ -17427,6 +17434,19 @@ class Compiler
         emit("  }")
         return tmp
       end
+      # difference: elements of self NOT in other (deduplicated).
+      # Inverse of intersection.
+      if mname == "difference"
+        arg = compile_arg0(nid)
+        tmp = new_temp
+        itmp = new_temp
+        emit("  sp_IntArray *" + tmp + " = sp_IntArray_new();")
+        emit("  for (mrb_int " + itmp + " = 0; " + itmp + " < sp_IntArray_length(" + rc + "); " + itmp + "++) {")
+        emit("    mrb_int _v = sp_IntArray_get(" + rc + ", " + itmp + ");")
+        emit("    if (!sp_IntArray_include(" + arg + ", _v) && !sp_IntArray_include(" + tmp + ", _v)) sp_IntArray_push(" + tmp + ", _v);")
+        emit("  }")
+        return tmp
+      end
       if mname == "min_by"
         if @nd_block[nid] >= 0
           blk = @nd_block[nid]
@@ -17594,6 +17614,23 @@ class Compiler
         emit("  }")
         return tmp
       end
+      # difference: float elements of self not in other, dedup. Inline
+      # membership for the NaN-aware == semantics; mirror intersection.
+      if mname == "difference"
+        arg = compile_arg0(nid)
+        tmp = new_temp
+        itmp = new_temp
+        jtmp = new_temp
+        ktmp = new_temp
+        emit("  sp_FloatArray *" + tmp + " = sp_FloatArray_new();")
+        emit("  for (mrb_int " + itmp + " = 0; " + itmp + " < sp_FloatArray_length(" + rc + "); " + itmp + "++) {")
+        emit("    mrb_float _v = sp_FloatArray_get(" + rc + ", " + itmp + ");")
+        emit("    mrb_int _in_b = 0; for (mrb_int " + jtmp + " = 0; " + jtmp + " < sp_FloatArray_length(" + arg + "); " + jtmp + "++) { if (sp_FloatArray_get(" + arg + ", " + jtmp + ") == _v) { _in_b = 1; break; } }")
+        emit("    mrb_int _in_r = 0; for (mrb_int " + ktmp + " = 0; " + ktmp + " < sp_FloatArray_length(" + tmp + "); " + ktmp + "++) { if (sp_FloatArray_get(" + tmp + ", " + ktmp + ") == _v) { _in_r = 1; break; } }")
+        emit("    if (!_in_b && !_in_r) sp_FloatArray_push(" + tmp + ", _v);")
+        emit("  }")
+        return tmp
+      end
     end
     if is_ptr_array_type(recv_type) == 1
       elem_type = ptr_array_elem_type(recv_type)
@@ -17727,6 +17764,19 @@ class Compiler
         emit("  for (mrb_int " + jtmp + " = 0; " + jtmp + " < sp_StrArray_length(" + arg + "); " + jtmp + "++) {")
         emit("    const char *_v = sp_StrArray_get(" + arg + ", " + jtmp + ");")
         emit("    if (!sp_StrArray_include(" + tmp + ", _v)) sp_StrArray_push(" + tmp + ", _v);")
+        emit("  }")
+        return tmp
+      end
+      # difference: str elements of self not in other, dedup. Mirrors
+      # int_array's branch with strcmp-backed membership.
+      if mname == "difference"
+        arg = compile_arg0(nid)
+        tmp = new_temp
+        itmp = new_temp
+        emit("  sp_StrArray *" + tmp + " = sp_StrArray_new();")
+        emit("  for (mrb_int " + itmp + " = 0; " + itmp + " < sp_StrArray_length(" + rc + "); " + itmp + "++) {")
+        emit("    const char *_v = sp_StrArray_get(" + rc + ", " + itmp + ");")
+        emit("    if (!sp_StrArray_include(" + arg + ", _v) && !sp_StrArray_include(" + tmp + ", _v)) sp_StrArray_push(" + tmp + ", _v);")
         emit("  }")
         return tmp
       end
