@@ -9,7 +9,13 @@
 #   make clean        Remove built binaries
 
 CC       ?= cc
-CFLAGS   = -O2 -Wno-all
+# `-Wno-alloc-size-larger-than` silences a gcc 13+ paranoia warning that
+# fires on the inlined `h->cap *= 2` in sp_*Hash_grow when the inliner
+# can't bound h->cap. The pattern is bounded in practice (cap doubles
+# from a small power of two until memory runs out, never approaches
+# 2^60), but gcc tracks signed-overflow UB conservatively. Other
+# compilers don't have the warning.
+CFLAGS   = -O2 -Wno-all -Wno-alloc-size-larger-than
 # Bootstrap-only flags: spinel_codegen runs on the developer's machine
 # only, so we can use -O3 -flto for ~5-10% extra wall-clock without
 # constraining users (whose generated C is built with plain CFLAGS).
@@ -195,12 +201,13 @@ test: spinel_parse$(EXE) $(SP_RT_LIB)
 	  fi; \
 	done; \
 	rm -f /tmp/_sp_t.ast /tmp/_sp_t.c /tmp/_sp_t_bin$(EXE); \
-	echo "Tests: $$pass pass, $$fail fail, $$err error"
+	echo "Tests: $$pass pass, $$fail fail, $$err error"; \
+	if [ $$fail -gt 0 ] || [ $$err -gt 0 ]; then exit 1; fi
 
 bench: spinel_parse$(EXE) $(SP_RT_LIB)
 	@if [ ! -f spinel_codegen$(EXE) ]; then echo "Run 'make bootstrap' first"; exit 1; fi
 	@if [ -z "$(TIMEOUT_BIN)" ]; then echo "Note: no 'timeout' command found; running without time limits."; fi
-	@pass=0; fail=0; skip=0; \
+	@pass=0; fail=0; skip=0; err=0; \
 	for f in benchmark/*.rb; do \
 	  bn=$$(basename "$$f" .rb); \
 	  $(TIMEOUT10) ./spinel_parse$(EXE) "$$f" /tmp/_sp_b.ast 2>/dev/null && \
@@ -224,11 +231,12 @@ bench: spinel_parse$(EXE) $(SP_RT_LIB)
 	      fi; \
 	    fi; \
 	  else \
-	    echo "ERR:  $$bn"; \
+	    echo "ERR:  $$bn"; err=$$((err+1)); \
 	  fi; \
 	done; \
 	rm -f /tmp/_sp_b.ast /tmp/_sp_b.c /tmp/_sp_b_bin$(EXE); \
-	echo "Benchmarks: $$pass pass, $$fail fail, $$skip skip"
+	echo "Benchmarks: $$pass pass, $$fail fail, $$skip skip, $$err error"; \
+	if [ $$fail -gt 0 ] || [ $$err -gt 0 ]; then exit 1; fi
 
 # ---- Install ----
 
