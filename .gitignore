@@ -16,7 +16,9 @@
 # Temp files
 /tmp/
 /spinel_codegen
+/spinel_codegen.exe
 /spinel_parse
+/spinel_parse.exe
 /perf.data
 /perf.data.old
 /lib/regexp/libspre.a
