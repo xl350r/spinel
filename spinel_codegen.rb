@@ -20296,7 +20296,17 @@ class Compiler
     emit("  sp_IntArray *" + tmp + " = sp_IntArray_new();")
     k = 0
     while k < elems.length
-      emit("  sp_IntArray_push(" + tmp + ", " + compile_expr(elems[k]) + ");")
+      ev = compile_expr(elems[k])
+      et = infer_type(elems[k])
+      # Unbox poly values when pushing into a (concrete) IntArray.
+      # An ArrayNode literal whose elements are poly (e.g.
+      # `[addr]` where addr's recorded type is sp_RbVal) needs the
+      # int payload extracted via `.v.i`. Without this, the C
+      # compiler rejects the push with "incompatible type".
+      if et == "poly"
+        ev = "(" + ev + ").v.i"
+      end
+      emit("  sp_IntArray_push(" + tmp + ", " + ev + ");")
       k = k + 1
     end
     tmp
