@@ -2751,6 +2751,18 @@ class Compiler
       end
       return "int_array"
     end
+    if mname == "transpose"
+      # Transposing a matrix preserves its shape type — `[[Int]]` stays
+      # `[[Int]]` (issue #156). Only ptr_array-of-T_array receivers are
+      # currently supported by codegen; other shapes fall through to
+      # the unresolved-call warning at emit time.
+      if recv >= 0
+        rt = infer_type(recv)
+        if is_ptr_array_type(rt) == 1
+          return rt
+        end
+      end
+    end
     if mname == "flat_map"
       if recv >= 0
         # Block returns an array; result type matches block return type
@@ -17960,6 +17972,29 @@ class Compiler
       end
       if mname == "empty?"
         return "sp_PtrArray_empty(" + rc + ")"
+      end
+      # Issue #156: transpose for [[Int]] (int_array_ptr_array). Other
+      # nested-array element shapes are not yet supported and fall
+      # through to the unresolved-call warning.
+      if mname == "transpose" && elem_type == "int_array"
+        @needs_int_array = 1
+        tmp = new_temp
+        col = new_temp
+        itmp = new_temp
+        jtmp = new_temp
+        cols = new_temp
+        emit("  sp_PtrArray *" + tmp + " = sp_PtrArray_new();")
+        emit("  if (sp_PtrArray_length(" + rc + ") > 0) {")
+        emit("    mrb_int " + cols + " = sp_IntArray_length((sp_IntArray *)sp_PtrArray_get(" + rc + ", 0));")
+        emit("    for (mrb_int " + jtmp + " = 0; " + jtmp + " < " + cols + "; " + jtmp + "++) {")
+        emit("      sp_IntArray *" + col + " = sp_IntArray_new();")
+        emit("      for (mrb_int " + itmp + " = 0; " + itmp + " < sp_PtrArray_length(" + rc + "); " + itmp + "++) {")
+        emit("        sp_IntArray_push(" + col + ", sp_IntArray_get((sp_IntArray *)sp_PtrArray_get(" + rc + ", " + itmp + "), " + jtmp + "));")
+        emit("      }")
+        emit("      sp_PtrArray_push(" + tmp + ", " + col + ");")
+        emit("    }")
+        emit("  }")
+        return tmp
       end
     end
     if recv_type == "str_array"
