@@ -28,7 +28,7 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.3"
+          ruby-version: "3.4"
 
       - name: Install prism gem (codegen bootstrap step 2 needs it)
         run: gem install prism -v 1.9.0
