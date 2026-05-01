@@ -2255,6 +2255,17 @@ class Compiler
       end
       return "int"
     end
+    # String#each_byte returns the receiver per CRuby. The block-bearing
+    # form is handled in compile_string_method_expr; the inference rule
+    # here is what makes `ret = "hi".each_byte { ... }` typed as string.
+    if mname == "each_byte"
+      if recv >= 0 && @nd_block[nid] >= 0
+        rt = infer_type(recv)
+        if rt == "string" || rt == "mutable_str"
+          return rt
+        end
+      end
+    end
     if mname == "then" || mname == "yield_self"
       # Return type is the block's return type. Bind the block param to
       # the receiver's type so infer_type sees the inner shadow, not any
@@ -16205,6 +16216,30 @@ class Compiler
   end
 
   def compile_string_method_expr(nid, mname, rc)
+    # String#each_byte returns the receiver per CRuby. The statement-level
+    # handler at compile_block_iteration_stmt emits the loop for `do …
+    # end` / `{ … }` with no captured value; the expression-level form
+    # (e.g. `ret = "hi".each_byte { ... }`) needs to produce the
+    # receiver. Same loop body, just emit-then-return-rc.
+    if mname == "each_byte" && @nd_block[nid] >= 0
+      bp = get_block_param(nid, 0)
+      if bp == ""
+        bp = "_b"
+      end
+      itmp = new_temp
+      src_tmp = new_temp
+      emit("  const char *" + src_tmp + " = " + rc + ";")
+      emit("  for (mrb_int " + itmp + " = 0; " + src_tmp + "[" + itmp + "]; " + itmp + "++) {")
+      emit("    mrb_int lv_" + bp + " = (unsigned char)" + src_tmp + "[" + itmp + "];")
+      @indent = @indent + 1
+      push_scope
+      declare_var(bp, "int")
+      compile_stmts_body(@nd_body[@nd_block[nid]])
+      pop_scope
+      @indent = @indent - 1
+      emit("  }")
+      return rc
+    end
     if mname == "length"
       # Only use hoisted length if the receiver matches (otherwise we'd
       # return the wrong string's length).
