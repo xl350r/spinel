@@ -2759,6 +2759,12 @@ class Compiler
       end
       return "str_int_hash"
     end
+    if mname == "transform_keys"
+      if recv >= 0
+        return infer_type(recv)
+      end
+      return "str_int_hash"
+    end
     if mname == "zip"
       if recv >= 0
         rt = infer_type(recv)
@@ -17926,6 +17932,34 @@ class Compiler
             end
           end
           emit("    sp_StrIntHash_set(" + tmp + ", " + rc + "->order[_i], " + bexpr + ");")
+          pop_scope
+          emit("  }")
+          return tmp
+        end
+      end
+      # transform_keys: apply the block to each key, keep the matching
+      # value, build a new hash. Result type matches the input hash
+      # type when the block returns the same key C-type — the common
+      # case for `transform_keys { |k| k.upcase }` etc.
+      if mname == "transform_keys"
+        if @nd_block[nid] >= 0
+          blk = @nd_block[nid]
+          bp = get_block_param(nid, 0)
+          tmp = new_temp
+          emit("  sp_StrIntHash *" + tmp + " = sp_StrIntHash_new();")
+          emit("  for (mrb_int _i = 0; _i < " + rc + "->len; _i++) {")
+          emit("    const char *lv_" + bp + " = " + rc + "->order[_i];")
+          push_scope
+          declare_var(bp, "string")
+          bbody = @nd_body[blk]
+          bexpr = "lv_" + bp
+          if bbody >= 0
+            bs = get_stmts(bbody)
+            if bs.length > 0
+              bexpr = compile_expr(bs.last)
+            end
+          end
+          emit("    sp_StrIntHash_set(" + tmp + ", " + bexpr + ", sp_StrIntHash_get(" + rc + ", " + rc + "->order[_i]));")
           pop_scope
           emit("  }")
           return tmp
