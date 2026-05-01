@@ -18003,6 +18003,34 @@ class Compiler
           return "sp_IntStrHash_get(" + rc + ", " + key + ")"
         end
       end
+      # transform_values block form. Mirrors str_int_hash's arm: walk
+      # self, run the block on each value, build a new hash with the
+      # same keys and the block's returns. Result type matches the
+      # input hash type.
+      if mname == "transform_values"
+        if @nd_block[nid] >= 0
+          blk = @nd_block[nid]
+          bp = get_block_param(nid, 0)
+          tmp = new_temp
+          emit("  sp_IntStrHash *" + tmp + " = sp_IntStrHash_new();")
+          emit("  for (mrb_int _i = 0; _i < " + rc + "->len; _i++) {")
+          emit("    const char *lv_" + bp + " = sp_IntStrHash_get(" + rc + ", " + rc + "->order[_i]);")
+          push_scope
+          declare_var(bp, "string")
+          bbody = @nd_body[blk]
+          bexpr = "0"
+          if bbody >= 0
+            bs = get_stmts(bbody)
+            if bs.length > 0
+              bexpr = compile_expr(bs.last)
+            end
+          end
+          emit("    sp_IntStrHash_set(" + tmp + ", " + rc + "->order[_i], " + bexpr + ");")
+          pop_scope
+          emit("  }")
+          return tmp
+        end
+      end
     end
     if recv_type == "str_str_hash"
       if mname == "[]"
