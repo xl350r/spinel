@@ -50,14 +50,18 @@ TIMEOUT10 := $(if $(TIMEOUT_BIN),$(TIMEOUT_BIN) 10,)
 TIMEOUT60 := $(if $(TIMEOUT_BIN),$(TIMEOUT_BIN) 60,)
 
 # Reference Ruby for `make test` / `make bench` output comparison.
-# Prefer `miniruby` (Ruby's bootstrap interpreter; matz's local copy is
-# 4.1.0dev with +PRISM, so newer features like `it` block param work)
-# when available; the test/bench harness falls back to `ruby` per-file
-# if miniruby exits non-zero — covers tests that `require` extension
-# libraries (stringio, etc.) which the bootstrap miniruby can't load.
-# Environments without miniruby use `ruby` directly. Override via
-# `REF_RUBY=ruby make test` if a specific primary is wanted.
-REF_RUBY ?= $(shell command -v miniruby >/dev/null 2>&1 && echo miniruby || echo ruby)
+# Defaults to `ruby` (the system CRuby), matching the historical
+# behaviour. Override on the command line when a newer or differently-
+# built interpreter is needed, e.g.
+#
+#   REF_RUBY=miniruby make test
+#
+# to use a freshly-built bootstrap interpreter (Ruby's `miniruby`)
+# that supports newer features like the `it` block param. The
+# harness falls back to `ruby` per-file if `REF_RUBY` exits non-zero
+# — covers tests that `require` extension libraries (stringio, etc.)
+# which the bootstrap miniruby can't load.
+REF_RUBY ?= ruby
 
 # Prism library: prefer vendor/prism (fetched via `make deps`), then
 # fall back to the Prism gem if one is installed. Override by setting
